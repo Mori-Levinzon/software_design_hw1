@@ -1,7 +1,8 @@
 package il.ac.technion.cs.softwaredesign
 
 import il.ac.technion.cs.softwaredesign.exceptions.TrackerException
-
+import java.lang.IllegalArgumentException
+import java.lang.IllegalStateException
 /**
  * This is the class implementing CourseTorrent, a BitTorrent client.
  *
@@ -22,7 +23,16 @@ class CourseTorrent {
      * @throws IllegalStateException If the infohash of [torrent] is already loaded.
      * @return The infohash of the torrent, i.e., the SHA-1 of the `info` key of [torrent].
      */
-    fun load(torrent: ByteArray): String = TODO("Implement me!")
+    fun load(torrent: ByteArray): String {
+        val torrentData = TorrentFile(torrent)
+        val infohash = torrentData.getInfohash()
+        try {
+            database.create(infohash, torrent)
+        } catch (e : IllegalStateException) {
+            throw IllegalStateException("Same infohash already loaded")
+        }
+        return infohash
+    }
 
     /**
      * Remove the torrent identified by [infohash] from the system.
@@ -31,8 +41,13 @@ class CourseTorrent {
      *
      * @throws IllegalArgumentException If [infohash] is not loaded.
      */
-    fun unload(infohash: String): Unit = TODO("Implement me!")
-
+    fun unload(infohash: String): Unit {
+        try {
+            database.delete(infohash)
+        } catch (e : IllegalArgumentException) {
+            throw IllegalArgumentException("Infohash doesn't exist")
+        }
+    }
     /**
      * Return the announce URLs for the loaded torrent identified by [infohash].
      *
@@ -46,8 +61,17 @@ class CourseTorrent {
      * @throws IllegalArgumentException If [infohash] is not loaded.
      * @return Tier lists of announce URLs.
      */
-    fun announces(infohash: String): List<List<String>> = TODO("Implement me!")
-
+    fun announces(infohash: String): List<List<String>> {
+        val torrent : ByteArray
+        try {
+            torrent = database.read(infohash)
+        } catch (e: IllegalArgumentException) {
+            throw IllegalArgumentException("Infohash doesn't exist")
+        }
+        val torrentData =
+            TorrentFile(torrent) //safe because it was checked in load
+        return torrentData.announceList
+    }
     /**
      * Send an "announce" HTTP request to a single tracker of the torrent identified by [infohash], and update the
      * internal state according to the response. The specification for these requests can be found here:
