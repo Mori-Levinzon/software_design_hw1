@@ -9,8 +9,7 @@ import java.nio.charset.Charset
 
 class SimpleDBModule : KotlinModule() {
     override fun configure() {
-        val injector = Guice.createInjector(SecureStorageModule())
-        bind<SecureStorageFactory>().toInstance(injector.getInstance<SecureStorageFactory>())
+        install(SecureStorageModule())
         bind<Charset>().toInstance(Charsets.UTF_8)
     }
 }
