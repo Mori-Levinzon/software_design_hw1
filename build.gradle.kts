@@ -19,6 +19,7 @@ allprojects {
         set("kotlinGuiceVersion", "1.4.1")
         set("mockkVersion", "1.9.3")
         set("externalLibraryVersion", "1.1.1")
+        set("fuelVersion", "2.2.2")
     }
 }
 

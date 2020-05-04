@@ -1,5 +1,6 @@
 package il.ac.technion.cs.softwaredesign
 
+import com.google.inject.Inject
 import il.ac.technion.cs.softwaredesign.exceptions.TrackerException
 import java.lang.IllegalArgumentException
 import java.lang.IllegalStateException
@@ -10,7 +11,7 @@ import java.lang.IllegalStateException
  * + Parsing torrent metainfo files (".torrent" files)
  * + Communication with trackers (announce, scrape).
  */
-class CourseTorrent {
+class CourseTorrent @Inject constructor(private val database: SimpleDB) {
     /**
      * Load in the torrent metainfo file from [torrent]. The specification for these files can be found here:
      * [Metainfo File Structure](https://wiki.theory.org/index.php/BitTorrentSpecification#Metainfo_File_Structure).
