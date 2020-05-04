@@ -43,6 +43,8 @@ class TorrentFile(torrent: ByteArray) {
         }
     }
 
+    fun shuffleAnnounceList():Unit =TODO("Implement me!")
+
     /**
      * Hashes a byte array with SHA1 in ISO-8859-1 encoding
      */
