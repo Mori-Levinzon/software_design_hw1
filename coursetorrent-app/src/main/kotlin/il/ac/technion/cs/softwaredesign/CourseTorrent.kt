@@ -27,11 +27,16 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
     fun load(torrent: ByteArray): String {
         val torrentData = TorrentFile(torrent)
         val infohash = torrentData.getInfohash()
+        database.setCurrentStorage(Databases.TORRENTS)
         try {
             database.create(infohash, torrent)
         } catch (e : IllegalStateException) {
             throw IllegalStateException("Same infohash already loaded")
         }
+        database.setCurrentStorage(Databases.PEERS)
+        database.create(infohash, "peers".toByteArray()) //TODO what should the inital be?
+        database.setCurrentStorage(Databases.STATS)
+        database.create(infohash, "stats".toByteArray()) //TODO what should the initial be?
         return infohash
     }
 
@@ -44,6 +49,11 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      */
     fun unload(infohash: String): Unit {
         try {
+            database.setCurrentStorage(Databases.TORRENTS)
+            database.delete(infohash)
+            database.setCurrentStorage(Databases.PEERS)
+            database.delete(infohash)
+            database.setCurrentStorage(Databases.STATS)
             database.delete(infohash)
         } catch (e : IllegalArgumentException) {
             throw IllegalArgumentException("Infohash doesn't exist")
@@ -63,6 +73,7 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      * @return Tier lists of announce URLs.
      */
     fun announces(infohash: String): List<List<String>> {
+        database.setCurrentStorage(Databases.TORRENTS)
         val torrent : ByteArray
         try {
             torrent = database.read(infohash)
