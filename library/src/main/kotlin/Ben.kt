@@ -77,7 +77,6 @@ class Ben(val byteArray: ByteArray, var i: Int = 0) {
     }
 
     companion object {
-        //TODO modify this function to better support ByterArrays in future assignments
         fun encodeStr(obj: Any): String = when (obj) {
             is Int -> "i${obj}e"
             is String -> "${obj.length}:$obj"

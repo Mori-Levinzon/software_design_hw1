@@ -4,6 +4,8 @@ import com.google.inject.Inject
 import il.ac.technion.cs.softwaredesign.exceptions.TrackerException
 import java.lang.IllegalArgumentException
 import java.lang.IllegalStateException
+import java.lang.StringBuilder
+
 /**
  * This is the class implementing CourseTorrent, a BitTorrent client.
  *
@@ -12,6 +14,7 @@ import java.lang.IllegalStateException
  * + Communication with trackers (announce, scrape).
  */
 class CourseTorrent @Inject constructor(private val database: SimpleDB) {
+    val alphaNumericID : String = Utils.getRandomChars(6)
     /**
      * Load in the torrent metainfo file from [torrent]. The specification for these files can be found here:
      * [Metainfo File Structure](https://wiki.theory.org/index.php/BitTorrentSpecification#Metainfo_File_Structure).
@@ -114,8 +117,25 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      * @throws IllegalArgumentException If [infohash] is not loaded.
      * @return The interval in seconds that the client should wait before announcing again.
      */
-    fun announce(infohash: String, event: TorrentEvent, uploaded: Long, downloaded: Long, left: Long): Int =
-        TODO("Implement me!")
+    fun announce(infohash: String, event: TorrentEvent, uploaded: Long, downloaded: Long, left: Long): Int {
+        database.setCurrentStorage(Databases.TORRENTS)
+        val torrentFile = TorrentFile(database.read(infohash)) //throws IllegalArgumentException
+        if(event == TorrentEvent.STARTED) torrentFile.shuffleAnnounceList()
+        val params = mutableListOf("info_hash" to infohash,
+                    "peer_id" to this.getPeerID(),
+                    "port" to "6881", //TODO ask matan
+                    "uploaded" to uploaded.toString(),
+                    "downloaded" to downloaded.toString(),
+                    "left" to left.toString(),
+                    "compact" to "1",
+                    "event" to event.asString)
+        val response = torrentFile.announceTracker(params) //throws TrackerException
+        val peers:String = Utils.getPeersStringFromResponse(response)
+        database.update(infohash, torrentFile.toByteArray())
+        database.setCurrentStorage(Databases.PEERS)
+        database.update(infohash, peers.toByteArray())
+        return response["interval"] as Int
+    }
 
     /**
      * Scrape all trackers identified by a torrent, and store the statistics provided. The specification for the scrape
@@ -175,4 +195,19 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      * @return A mapping from tracker announce URL to statistics.
      */
     fun trackerStats(infohash: String): Map<String, ScrapeData> = TODO("Implement me!")
+
+    /**
+     * Returns the peer ID of the client
+     * Peer ID should be set to "-CS1000-{Student ID}{Random numbers}", where {Student ID} is the first 6 characters
+     * from the hex-encoded SHA-1 hash of the student's ID numbers (i.e., `hex(sha1(student1id + student2id))`), and
+     * {Random numbers} are 6 random characters in the range [0-9a-zA-Z] generated at instance creation.
+     */
+    private fun getPeerID(): String {
+        val studentIDs = "206989105308328467"
+        val builder = StringBuilder()
+        builder.append("-CS1000-")
+        builder.append(Utils.sha1hash(studentIDs.toByteArray()))
+        builder.append(alphaNumericID)
+        return builder.toString()
+    }
 }

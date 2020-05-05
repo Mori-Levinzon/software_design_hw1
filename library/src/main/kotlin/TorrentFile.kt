@@ -6,7 +6,8 @@ import java.security.MessageDigest
 
 class TorrentFile(torrent: ByteArray) {
     val info : ByteArray
-    val announceList : List<List<String>>
+    var announceList : List<List<String>>
+        private set
     val creationDate : String?
     val comment : String?
     val createdBy : String?
@@ -26,7 +27,7 @@ class TorrentFile(torrent: ByteArray) {
 
         creationDate = torrentData["creation date"] as? String?
         comment = torrentData["comment"] as? String?
-        createdBy = torrentData["createdBy"] as? String?
+        createdBy = torrentData["created by"] as? String?
         info = torrentData["infoEncoded"] as ByteArray
         if(torrentData.containsKey("announce-list")) {
             try {
@@ -37,23 +38,35 @@ class TorrentFile(torrent: ByteArray) {
         }
         else {
             val announce : String = torrentData["announce"] as String
-            announceList = ArrayList<ArrayList<String>>()
-            announceList.add(ArrayList<String>())
-            announceList[0].add(announce)
+            announceList = arrayListOf(arrayListOf(announce))
         }
     }
 
-    fun shuffleAnnounceList():Unit =TODO("Implement me!")
-
-    /**
-     * Hashes a byte array with SHA1 in ISO-8859-1 encoding
-     */
-    private fun sha1hash(input: ByteArray) : String {
-        val bytes = MessageDigest.getInstance("SHA-1").digest(input)
-        return bytes.fold("", { str, it -> str + "%02x".format(it) })
+    fun toByteArray() : ByteArray {
+        val map : HashMap<String, Any> = hashMapOf("infoEncoded" to info, "announce-list" to announceList)
+        if(creationDate != null) map["creation date"] = creationDate
+        if(comment != null) map["comment"] = comment
+        if(createdBy != null) map["created by"] = createdBy
+        return Ben.encodeStr(map).toByteArray()
     }
 
-    fun getInfohash() : String = sha1hash(info)
+    fun getInfohash() : String = Utils.sha1hash(info)
 
+    /**
+     * Shuffles the order in each tier of the announcelist
+     */
+    fun shuffleAnnounceList():Unit {
+        announceList = announceList.map { it.shuffled() }
+    }
 
+    /**
+     * -Announces to a tracker, by the order specified in the BitTorrent specification
+     * -This function is responsible for attaching the trackerid to the params if necessary,
+     *  which is why the params parameter is mutable
+     * -This function is also responsible for reordering the trackers if necessary,
+     *  as requested by the BitTorrent specification
+     * @throws TrackerException if no trackers return a non-failure response
+     * @returns the response string from the tracker, de-bencoded
+     */
+    fun announceTracker(params: MutableList<Pair<String, String>>) : Map<String, Any> = TODO("Implement me!")
 }
