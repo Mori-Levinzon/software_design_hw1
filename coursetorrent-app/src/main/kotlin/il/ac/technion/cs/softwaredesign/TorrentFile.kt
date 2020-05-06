@@ -1,12 +1,14 @@
 package il.ac.technion.cs.softwaredesign
 
+import com.github.kittinunf.fuel.httpGet
+import com.github.kittinunf.result.Result
+import il.ac.technion.cs.softwaredesign.exceptions.TrackerException
 import java.lang.Exception
 import java.lang.IllegalArgumentException
-import java.security.MessageDigest
 
 class TorrentFile(torrent: ByteArray) {
     val info : ByteArray
-    var announceList : List<List<String>>
+    var announceList : MutableList<MutableList<String>>
         private set
     val creationDate : String?
     val comment : String?
@@ -31,7 +33,7 @@ class TorrentFile(torrent: ByteArray) {
         info = torrentData["infoEncoded"] as ByteArray
         if(torrentData.containsKey("announce-list")) {
             try {
-                announceList = torrentData["announce-list"] as List<List<String>>
+                announceList = torrentData["announce-list"] as MutableList<MutableList<String>>
             } catch (e : Exception) {
                 throw IllegalArgumentException("Invalid metainfo file")
             }
@@ -56,17 +58,45 @@ class TorrentFile(torrent: ByteArray) {
      * Shuffles the order in each tier of the announcelist
      */
     fun shuffleAnnounceList():Unit {
-        announceList = announceList.map { it.shuffled() }
+        announceList.map{ it.shuffle() }
     }
 
     /**
      * -Announces to a tracker, by the order specified in the BitTorrent specification
-     * -This function is responsible for attaching the trackerid to the params if necessary,
-     *  which is why the params parameter is mutable
+     * -The trackerid functionality is *not* required in the assignment (Matan said)
      * -This function is also responsible for reordering the trackers if necessary,
      *  as requested by the BitTorrent specification
      * @throws TrackerException if no trackers return a non-failure response
      * @returns the response string from the tracker, de-bencoded
      */
-    fun announceTracker(params: MutableList<Pair<String, String>>) : Map<String, Any> = TODO("Implement me!")
+    fun announceTracker(params: List<Pair<String, String>>) : Map<String, Any> {
+        var lastErrorMessage = "Empty announce list"
+        for(tier in this.announceList) {
+            for(trackerURL in tier) {
+                val (_, _, result) = trackerURL.httpGet(params).response()
+                if(result is Result.Failure) {
+                    lastErrorMessage = "HTTP connection failed"
+                    continue
+                }
+                else {
+                    //successful connection
+                    val responseMap : Map<String, Any>? = Ben(result.get()).decode() as? Map<String, Any>?
+                    if(responseMap == null || !responseMap.containsKey("peers")) {
+                        lastErrorMessage = "HTTP response invalid"
+                        continue
+                    }
+                    if(responseMap.containsKey("failure reason")) {
+                        lastErrorMessage = responseMap["failure reason"] as String
+                        continue
+                    }
+                    //reorder the tier to have the successful tracker at index 0
+                    tier.remove(trackerURL)
+                    tier.add(0, trackerURL)
+                    //return the response map
+                    return responseMap
+                }
+            }
+        }
+        throw TrackerException(lastErrorMessage)
+    }
 }
