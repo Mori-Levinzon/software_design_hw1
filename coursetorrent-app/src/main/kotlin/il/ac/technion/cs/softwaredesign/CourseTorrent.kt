@@ -134,6 +134,7 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
         database.update(infohash, torrentFile.toByteArray())
         database.setCurrentStorage(Databases.PEERS)
         database.update(infohash, Ben.encodeStr(peers).toByteArray())
+        this.updateStatsAfterAnnounce(infohash, response)
         return response["interval"] as Int
     }
 
@@ -210,4 +211,6 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
         builder.append(alphaNumericID)
         return builder.toString()
     }
+
+    private fun updateStatsAfterAnnounce(infohash : String, response : Map<String, Any>) : Unit = TODO("Implement me!")
 }
