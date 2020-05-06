@@ -37,9 +37,9 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
             throw IllegalStateException("Same infohash already loaded")
         }
         database.setCurrentStorage(Databases.PEERS)
-        database.create(infohash, "peers".toByteArray()) //TODO what should the inital be?
+        database.create(infohash, Ben.encodeStr(listOf<Map<String, Any>>()).toByteArray())
         database.setCurrentStorage(Databases.STATS)
-        database.create(infohash, "stats".toByteArray()) //TODO what should the initial be?
+        database.create(infohash, Ben.encodeStr(mapOf<String, Any>()).toByteArray())
         return infohash
     }
 
@@ -84,7 +84,7 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
             throw IllegalArgumentException("Infohash doesn't exist")
         }
         val torrentData =
-            TorrentFile(torrent) //safe because it was checked in load
+                TorrentFile(torrent) //safe because it was checked in load
         return torrentData.announceList
     }
     /**
@@ -121,19 +121,19 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
         database.setCurrentStorage(Databases.TORRENTS)
         val torrentFile = TorrentFile(database.read(infohash)) //throws IllegalArgumentException
         if(event == TorrentEvent.STARTED) torrentFile.shuffleAnnounceList()
-        val params = mutableListOf("info_hash" to infohash,
+        val params = listOf("info_hash" to infohash,
                     "peer_id" to this.getPeerID(),
-                    "port" to "6881", //TODO ask matan
+                    "port" to "6881", //Matan said to leave it like that, will be changed in future assignments
                     "uploaded" to uploaded.toString(),
                     "downloaded" to downloaded.toString(),
                     "left" to left.toString(),
                     "compact" to "1",
                     "event" to event.asString)
         val response = torrentFile.announceTracker(params) //throws TrackerException
-        val peers:String = Utils.getPeersStringFromResponse(response)
+        val peers:List<Map<String, Any>> = Utils.getPeersFromResponse(response)
         database.update(infohash, torrentFile.toByteArray())
         database.setCurrentStorage(Databases.PEERS)
-        database.update(infohash, peers.toByteArray())
+        database.update(infohash, Ben.encodeStr(peers).toByteArray())
         return response["interval"] as Int
     }
 
