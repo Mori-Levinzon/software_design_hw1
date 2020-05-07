@@ -3,8 +3,8 @@ package il.ac.technion.cs.softwaredesign
 import com.github.kittinunf.fuel.httpGet
 import com.google.inject.Inject
 import il.ac.technion.cs.softwaredesign.exceptions.TrackerException
-import java.util.*
 import kotlin.collections.LinkedHashMap
+import kotlin.streams.toList
 
 
 /**
@@ -175,9 +175,12 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
                 }
             }
         }
+        //update the current url of the trackers in the torrent file
+        database.setCurrentStorage(Databases.TORRENTS)
+        database.update(infohash, torrentFile.toByteArray())
         //update the current stats of the torrent file in the stats db
         database.setCurrentStorage(Databases.STATS)
-        database.update(infohash,torrentAllStats.toString().toByteArray())
+        database.update(infohash,Ben.encodeStr(torrentAllStats).toByteArray())
 
     }
 
@@ -192,7 +195,15 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      *
      * @throws IllegalArgumentException If [infohash] is not loaded.
      */
-    fun invalidatePeer(infohash: String, peer: KnownPeer): Unit = TODO("Implement me!")
+    fun invalidatePeer(infohash: String, peer: KnownPeer): Unit {
+        database.setCurrentStorage(Databases.PEERS)
+        val peersByteArray = database.read(infohash) //throws IllegalArgumentException
+        val peersList :List<Map<String, Any>> = Ben(peersByteArray).decode() as List<Map<String, Any>>
+        peersList.filter { it->  (it["IP"] != peer.ip)  }
+
+        database.update(infohash, Ben.encodeStr(peersList).toByteArray())
+
+    }
 
     /**
      * Return all known peers for the torrent identified by [infohash], in sorted order. This list should contain all
@@ -207,7 +218,15 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      * @throws IllegalArgumentException If [infohash] is not loaded.
      * @return Sorted list of known peers.
      */
-    fun knownPeers(infohash: String): List<KnownPeer> = TODO("Implement me!")
+    fun knownPeers(infohash: String): List<KnownPeer> {
+        database.setCurrentStorage(Databases.PEERS)
+        val peersByteArray = database.read(infohash) //throws IllegalArgumentException
+        val peersList :List<Map<String, Any>> = Ben(peersByteArray).decode() as List<Map<String, Any>>
+
+        val sortedPeers = peersList.stream().map { it -> KnownPeer(it["ip"] as String,it["port"] as Int,it["peerId"] as () -> Unit)}.sorted { o1, o2 -> Utils.compareIPs(o1.ip,o2.ip)}.toList()
+
+        return sortedPeers
+    }
 
     /**
      * Return all known statistics from trackers of the torrent identified by [infohash]. The statistics displayed
