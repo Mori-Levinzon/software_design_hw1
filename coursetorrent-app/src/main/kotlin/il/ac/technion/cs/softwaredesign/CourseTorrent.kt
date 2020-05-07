@@ -1,10 +1,11 @@
 package il.ac.technion.cs.softwaredesign
 
+import com.github.kittinunf.fuel.httpGet
 import com.google.inject.Inject
 import il.ac.technion.cs.softwaredesign.exceptions.TrackerException
-import java.lang.IllegalArgumentException
-import java.lang.IllegalStateException
-import java.lang.StringBuilder
+import java.util.*
+import kotlin.collections.LinkedHashMap
+
 
 /**
  * This is the class implementing CourseTorrent, a BitTorrent client.
@@ -149,7 +150,38 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      *
      * @throws IllegalArgumentException If [infohash] is not loaded.
      */
-    fun scrape(infohash: String): Unit = TODO("Implement me!")
+    fun scrape(infohash: String): Unit {
+        val torrentAllStats = LinkedHashMap<String,Any>()
+
+        val torrentFile = TorrentFile(database.read(infohash)) //throws IllegalArgumentException
+        for(tier in torrentFile.announceList) {
+            for(trackerURL in tier) {
+                //find the last accourance of '/' and if it followed by "announce" then change to string to "scrape" and send request
+                var lastSlash = trackerURL.lastIndexOf('/')
+                if (trackerURL.substring(lastSlash,lastSlash+"announce".length) == "announce"){
+                    trackerURL.replaceAfterLast("/announce","/scrape")
+                    val params = listOf("info_hash" to infohash)
+                    val responseMessage = trackerURL.httpGet(params).response().second.responseMessage
+
+                    val currentStatsDict = ScrapeResponeBencoder(responseMessage) as LinkedHashMap<String, LinkedHashMap<String,Any>>
+
+
+                    if (currentStatsDict["failure_reason"] != null){//TODO: check what to if the response failed: ignore the current trackerUrl or throw exception
+                        continue
+                    }
+
+                    //insert the stats about the current files
+                    torrentAllStats.putAll(currentStatsDict["files"] as Map<String, Any>)
+                }
+            }
+        }
+        //update the current stats of the torrent file in the stats db
+        database.setCurrentStorage(Databases.STATS)
+        database.update(infohash,torrentAllStats.toString().toByteArray())
+
+    }
+
+
 
     /**
      * Invalidate a previously known peer for this torrent.
