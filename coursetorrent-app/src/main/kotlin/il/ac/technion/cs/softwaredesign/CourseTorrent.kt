@@ -161,12 +161,12 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
                 if (trackerURL.substring(lastSlash,lastSlash+"announce".length) == "announce"){
                     trackerURL.replaceAfterLast("/announce","/scrape")
                     val params = listOf("info_hash" to infohash)
-                    val responseMessage = trackerURL.httpGet(params).response().second.responseMessage
+                    val responseMessageMap = trackerURL.httpGet(params).response().second.responseMessage
 
-                    val currentStatsDict = ScrapeResponeBencoder(responseMessage) as LinkedHashMap<String, LinkedHashMap<String,Any>>
+                    //val currentStars = ScrapeResponeBencoder(responseMessage) as LinkedHashMap<String, LinkedHashMap<String,Any>>
+                    val currentStatsDict = Ben(responseMessageMap.toByteArray()).decode() as? Map<String, Any>?
 
-
-                    if (currentStatsDict["failure_reason"] != null){//TODO: check what to if the response failed: ignore the current trackerUrl or throw exception
+                    if (currentStatsDict == null ||  currentStatsDict.containsKey("failure_reason")){//TODO: check what to if the response failed: ignore the current trackerUrl or throw exception
                         continue
                     }
 
@@ -223,7 +223,8 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
         val peersByteArray = database.read(infohash) //throws IllegalArgumentException
         val peersList :List<Map<String, Any>> = Ben(peersByteArray).decode() as List<Map<String, Any>>
 
-        val sortedPeers = peersList.stream().map { it -> KnownPeer(it["ip"] as String,it["port"] as Int,it["peerId"] as () -> Unit)}.sorted { o1, o2 -> Utils.compareIPs(o1.ip,o2.ip)}.toList()
+        //TODO: check if the type of peedId should be String as at the original file or () -> Unit
+        val sortedPeers = peersList.stream().map { it -> KnownPeer(it["ip"] as String,it["port"] as Int,it["peerId"] as String?)}.sorted { o1, o2 -> Utils.compareIPs(o1.ip,o2.ip)}.toList()
 
         return sortedPeers
     }
