@@ -3,6 +3,7 @@ package il.ac.technion.cs.softwaredesign
 import com.github.kittinunf.fuel.httpGet
 import com.google.inject.Inject
 import il.ac.technion.cs.softwaredesign.exceptions.TrackerException
+import java.lang.Exception
 import kotlin.collections.LinkedHashMap
 import kotlin.streams.toList
 
@@ -156,28 +157,44 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
         val torrentFile = TorrentFile(database.read(infohash)) //throws IllegalArgumentException
         for(tier in torrentFile.announceList) {
             for(trackerURL in tier) {
+                val changableUrl =trackerURL
                 //find the last accourance of '/' and if it followed by "announce" then change to string to "scrape" and send request
-                var lastSlash = trackerURL.lastIndexOf('/')
-                if (trackerURL.substring(lastSlash,lastSlash+"announce".length) == "announce"){
-                    trackerURL.replaceAfterLast("/announce","/scrape")
+                var lastSlash = changableUrl.lastIndexOf('/')
+                if (changableUrl.substring(lastSlash,lastSlash+"announce".length) == "announce"){
+                    changableUrl.replaceAfterLast("/announce","/scrape")
                     val params = listOf("info_hash" to infohash)
-                    val responseMessageMap = trackerURL.httpGet(params).response().second.responseMessage
 
-                    //val currentStars = ScrapeResponeBencoder(responseMessage) as LinkedHashMap<String, LinkedHashMap<String,Any>>
-                    val currentStatsDict = Ben(responseMessageMap.toByteArray()).decode() as? Map<String, Any>?
-
-                    if (currentStatsDict == null ||  currentStatsDict.containsKey("failure_reason")){//TODO: check what to if the response failed: ignore the current trackerUrl or throw exception
-                        continue
+                    val responseMessageString : String = ""
+                    try{
+                        val responseMessageMap = changableUrl.httpGet(params).response().second.responseMessage
+                    }catch (e : Exception) {
+                        throw java.lang.IllegalArgumentException("Invalid metainfo file")
                     }
 
-                    //insert the stats about the current files
-                    torrentAllStats.putAll(currentStatsDict["files"] as Map<String, Any>)
+                    val currentStatsDict : LinkedHashMap<String, Any> = LinkedHashMap<String, Any>()
+                    try {
+                        val currentStatsDict = Ben(responseMessageString.toByteArray()).decode() as? Map<String, Any>?
+                    } catch (e : Exception) {
+                        throw java.lang.IllegalArgumentException("Invalid metainfo file")
+                    }
+
+                    when {
+                        currentStatsDict.isEmpty() -> {
+                            currentStatsDict["failure_reason"] = "empty bencoded dictionary"
+                        }
+                        currentStatsDict.containsKey("failure_reason") -> {
+                            torrentAllStats[trackerURL] = currentStatsDict as Map<String, Any>
+                        }
+                        else -> {
+                            //insert the stats about the current files
+                            torrentAllStats[trackerURL] = currentStatsDict["files"] as Map<String, Any>
+                        }
+                    }
+
+
                 }
             }
         }
-        //update the current url of the trackers in the torrent file
-        database.setCurrentStorage(Databases.TORRENTS)
-        database.update(infohash, torrentFile.toByteArray())
         //update the current stats of the torrent file in the stats db
         database.setCurrentStorage(Databases.STATS)
         database.update(infohash,Ben.encodeStr(torrentAllStats).toByteArray())
@@ -199,9 +216,9 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
         database.setCurrentStorage(Databases.PEERS)
         val peersByteArray = database.read(infohash) //throws IllegalArgumentException
         val peersList :List<Map<String, Any>> = Ben(peersByteArray).decode() as List<Map<String, Any>>
-        peersList.filter { it->  (it["IP"] != peer.ip)  }
+        val newPeerslist = peersList.filter { it->  (it["IP"] != peer.ip)  }
 
-        database.update(infohash, Ben.encodeStr(peersList).toByteArray())
+        database.update(infohash, Ben.encodeStr(newPeerslist).toByteArray())
 
     }
 
@@ -223,7 +240,6 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
         val peersByteArray = database.read(infohash) //throws IllegalArgumentException
         val peersList :List<Map<String, Any>> = Ben(peersByteArray).decode() as List<Map<String, Any>>
 
-        //TODO: check if the type of peedId should be String as at the original file or () -> Unit
         val sortedPeers = peersList.stream().map { it -> KnownPeer(it["ip"] as String,it["port"] as Int,it["peerId"] as String?)}.sorted { o1, o2 -> Utils.compareIPs(o1.ip,o2.ip)}.toList()
 
         return sortedPeers

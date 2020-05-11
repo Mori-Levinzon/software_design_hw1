@@ -8,7 +8,7 @@ import kotlin.random.Random
 import java.util.*
 import kotlin.Comparator
 
-class Utils: Comparator<String> {
+class Utils {
 
     companion object{
 
@@ -75,9 +75,5 @@ class Utils: Comparator<String> {
             }
         }
 
-    }
-
-    override fun compare(ip1: String?, ip2: String?): Int {
-        return compareIPs(ip1,ip2)
     }
 }
