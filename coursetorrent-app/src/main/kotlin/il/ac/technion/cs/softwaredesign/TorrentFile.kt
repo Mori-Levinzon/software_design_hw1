@@ -6,62 +6,47 @@ import il.ac.technion.cs.softwaredesign.exceptions.TrackerException
 import java.lang.Exception
 import java.lang.IllegalArgumentException
 
-class TorrentFile(torrent: ByteArray) {
-    val info : ByteArray
+class TorrentFile(val infohash : String, immutableList : List<List<String>>) {
     var announceList : MutableList<MutableList<String>>
-        private set
-    val creationDate : String?
-    val comment : String?
-    val createdBy : String?
 
-    /**
-     * Initialize torrent file from torrent byte array
-     * @throws IllegalArgumentException if the supplied byte array is an not a valid metainfo file
-     */
-    init {
-        val torrentData : Map<String, Any>
-        try {
-            torrentData = Ben(torrent).decode() as Map<String, Any>
-        } catch (e : Exception) {
-            throw IllegalArgumentException("Invalid metainfo file")
-        }
-        if(!torrentData.containsKey("infoEncoded")) {
-            info = ByteArray(0)
-        }
-        else {
-            info = torrentData["infoEncoded"] as ByteArray
-        }
-
-        creationDate = torrentData["creation date"] as? String?
-        comment = torrentData["comment"] as? String?
-        createdBy = torrentData["created by"] as? String?
-        if(torrentData.containsKey("announce-list")) {
+    companion object {
+        /**
+         * Initialize torrent file from torrent byte array
+         * @throws IllegalArgumentException if the supplied byte array is an not a valid metainfo file
+         */
+        public fun deserialize(torrent: ByteArray) : TorrentFile {
+            val torrentData : Map<String, Any>
             try {
-                announceList = torrentData["announce-list"] as MutableList<MutableList<String>>
+                torrentData = Ben(torrent).decode() as Map<String, Any>
             } catch (e : Exception) {
                 throw IllegalArgumentException("Invalid metainfo file")
             }
-        }
-        else {
-            val announce : String = torrentData["announce"] as String
-            announceList = arrayListOf(arrayListOf(announce))
+
+            if(!torrentData.containsKey("infoEncoded")) {
+                throw IllegalArgumentException("Invalid metainfo file")
+            }
+            val info = torrentData["infoEncoded"] as ByteArray
+            val infoHash = Utils.sha1hash(info)
+
+            val announceList : MutableList<MutableList<String>>
+            if(torrentData.containsKey("announce-list")) {
+                try {
+                    announceList = torrentData["announce-list"] as MutableList<MutableList<String>>
+                } catch (e : Exception) {
+                    throw IllegalArgumentException("Invalid metainfo file")
+                }
+            }
+            else {
+                val announce : String = torrentData["announce"] as String
+                announceList = arrayListOf(arrayListOf(announce))
+            }
+
+            return TorrentFile(infoHash, announceList)
         }
     }
 
-    fun toByteArray() : ByteArray {
-        val map : HashMap<String, Any> = hashMapOf("infoEncoded" to info, "announce-list" to announceList)
-        if(creationDate != null) map["creation date"] = creationDate
-        if(comment != null) map["comment"] = comment
-        if(createdBy != null) map["created by"] = createdBy
-        return Ben.encodeStr(map).toByteArray()
-    }
-
-    fun getInfohash() : String = Utils.sha1hash(info)
-
-    public fun getBencodedString() : String {
-        val torrentMap = HashMap<String, Any>()
-        torrentMap.put("announce-list", announceList)
-        return Ben.encodeStr(torrentMap)
+    init {
+        announceList = immutableList.map { list -> list.toMutableList() }.toMutableList()
     }
 
     /**
@@ -81,9 +66,8 @@ class TorrentFile(torrent: ByteArray) {
      * @throws TrackerException if no trackers return a non-failure response
      * @returns the response string from the tracker, de-bencoded
      */
-    fun announceTracker(params: List<Pair<String, String>>, database: SimpleDB, dbKey: String) : Map<String, Any> {
-        database.setCurrentStorage(Databases.STATS)
-        val trackerStats = (Ben(database.read(dbKey)).decode() as Map<String, Any>).toMutableMap()
+    fun announceTracker(params: List<Pair<String, String>>, database: SimpleDB) : Map<String, Any> {
+        val trackerStats = database.statsRead(infohash).toMutableMap()
         var lastErrorMessage = "Empty announce list"
         for(tier in this.announceList) {
             for(trackerURL in tier) {
@@ -96,13 +80,13 @@ class TorrentFile(torrent: ByteArray) {
                 else {
                     //successful connection
                     val responseMap : Map<String, Any>? = Ben(result.get()).decode() as? Map<String, Any>?
-                    if(responseMap == null || !responseMap.containsKey("peers")) {
-                        lastErrorMessage = "Connection failed" //response invalid
+                    if(responseMap != null && responseMap.containsKey("failure reason")) {
+                        lastErrorMessage = responseMap["failure reason"] as String
                         trackerStats[trackerURL] = mapOf("failure reason" to lastErrorMessage)
                         continue
                     }
-                    if(responseMap.containsKey("failure reason")) {
-                        lastErrorMessage = responseMap["failure reason"] as String
+                    if(responseMap == null || !responseMap.containsKey("peers")) {
+                        lastErrorMessage = "Connection failed" //response invalid
                         trackerStats[trackerURL] = mapOf("failure reason" to lastErrorMessage)
                         continue
                     }
@@ -110,17 +94,21 @@ class TorrentFile(torrent: ByteArray) {
                     tier.remove(trackerURL)
                     tier.add(0, trackerURL)
                     //update tracker stats
-                    trackerStats[trackerURL] = Scrape(responseMap["complete"] as Int,
-                            (trackerStats[trackerURL] as? Map<String, Any>?)?.get("downloaded") as? Int ?: 0,
-                            responseMap["incomplete"] as Int,
-                            (trackerStats[trackerURL] as? Map<String, Any>?)?.get("name") as? String?)
-                    database.update(dbKey, Ben.encodeStr(trackerStats).toByteArray())
+                    val name = trackerStats[trackerURL]?.get("name") as? String?
+                    val newScrapeData = mutableMapOf<String, Any>("complete" to responseMap["complete"] as Int,
+                            "downloaded" to (trackerStats[trackerURL]?.get("downloaded") as? Int ?: 0),
+                            "incomplete" to responseMap["incomplete"] as Int)
+                    if(name != null) {
+                        newScrapeData["name"] = name
+                    }
+                    trackerStats[trackerURL] = newScrapeData
+                    database.statsUpdate(infohash, trackerStats)
                     //return the response map
                     return responseMap
                 }
             }
         }
-        database.update(dbKey, Ben.encodeStr(trackerStats).toByteArray())
+        database.statsUpdate(infohash, trackerStats)
         throw TrackerException(lastErrorMessage)
     }
 
@@ -129,23 +117,16 @@ class TorrentFile(torrent: ByteArray) {
      * -This function also updates the tracker stats for every tracker if it can be scraped
      * @throws IllegalArgumentException If [infohash] is not loaded.
      */
-    fun scrapeTrackers(infohash: String, database: SimpleDB):  Map<String, Any>{
-        database.setCurrentStorage(Databases.STATS)
-        val torrentAllStats = (Ben(database.read(infohash)).decode() as Map<String, Any>).toMutableMap()
-
-        database.setCurrentStorage(Databases.TORRENTS)
-        val torrentFile = TorrentFile(database.read(infohash)) //throws IllegalArgumentException
-        for (tier in torrentFile.announceList) {
+    fun scrapeTrackers(database: SimpleDB):  Map<String, Map<String, Any>>{
+        val torrentAllStats = database.statsRead(infohash).toMutableMap()
+        for (tier in announceList) {
             for (trackerURL in tier) {
                 val scrapeURL = trackerURL
-                //find the last accourance of '/' and if it followed by "announce" then change to string to "scrape" and send request
-                var lastSlash = scrapeURL.lastIndexOf('/')
+                //find the last occurrence of '/' and if it followed by "announce" then change to string to "scrape" and send request
+                val lastSlash = scrapeURL.lastIndexOf('/')
                 if (scrapeURL.substring(lastSlash, lastSlash + "announce".length) == "announce") {
-
-                    var newTrackerStatsMap: Map<String, Any> = sendScrapeRequest(scrapeURL, infohash)
-
-                    newTrackerStatsMap = updateCurrentTrackerStats(newTrackerStatsMap, torrentAllStats, trackerURL, infohash)
-
+                    val newTrackerStatsMap: Map<String, Any> = sendScrapeRequest(scrapeURL, infohash)
+                    updateCurrentTrackerStats(newTrackerStatsMap, torrentAllStats, trackerURL)
                 }
             }
         }
@@ -155,31 +136,30 @@ class TorrentFile(torrent: ByteArray) {
     /**
      * -Update the tracker stats according to the response map received from the HTTP get request
      */
-    private fun updateCurrentTrackerStats(newTrackerStatsMap: Map<String, Any>, torrentAllStats: MutableMap<String, Any>, trackerURL: String, infohash: String): Map<String, Any> {
+    private fun updateCurrentTrackerStats(newTrackerStatsMap: Map<String, Any>, torrentAllStats: MutableMap<String, Map<String, Any>>, trackerURL: String) {
         var changedTrackerStats = newTrackerStatsMap
         if (changedTrackerStats.isEmpty()) {
             changedTrackerStats = mapOf("failure reason" to "Connection failed")
         }
-
-        var oldName = (torrentAllStats[trackerURL] as? Map<String, Any>?)?.get("name") as? String?
-
+        val oldName = torrentAllStats[trackerURL]?.get("name") as? String?
         when {
             changedTrackerStats.containsKey("failure reason") -> {
-                torrentAllStats[trackerURL] = mapOf("name" to ((changedTrackerStats[trackerURL] as? Map<String, Any>?)?.get("name") as? String
-                        ?: oldName),
-                        "failure reason" to changedTrackerStats["recievedDict"]) as Map<String, Any>
+                torrentAllStats[trackerURL] = mapOf("failure reason" to changedTrackerStats["recievedDict"]!!)
             }
             else -> {
                 //insert the stats about the current files
-                torrentAllStats[trackerURL] = (changedTrackerStats["files"] as Map<String, Any>)[infohash] as Map<String, Any>
-                torrentAllStats[trackerURL] = Scrape((changedTrackerStats["files"] as? Map<String, Any>?)?.get("complete") as? Int
-                        ?: 0,
-                        (changedTrackerStats["files"] as? Map<String, Any>?)?.get("downloaded") as? Int ?: 0,
-                        (changedTrackerStats["files"] as? Map<String, Any>?)?.get("incomplete") as? Int ?: 0,
-                        (changedTrackerStats[trackerURL] as? Map<String, Any>?)?.get("name") as? String ?: oldName)
+                val currTrackerMap = (changedTrackerStats["files"] as? Map<String, Any>?)?.get(infohash) as? Map<String, Any>?
+                //TODO maybe throw an exception if the response doesn't have the required fields?
+                val name = currTrackerMap?.get("name") as? String ?: oldName
+                val newScrapeData = mutableMapOf<String, Any>("complete" to (currTrackerMap?.get("complete") as? Int ?: 0),
+                        "downloaded" to (currTrackerMap?.get("downloaded") as? Int ?: 0),
+                        "incomplete" to (currTrackerMap?.get("incomplete") as? Int ?: 0))
+                if(name != null) {
+                    newScrapeData["name"] = name
+                }
+                torrentAllStats[trackerURL] = newScrapeData
             }
         }
-        return changedTrackerStats
     }
 
     /**

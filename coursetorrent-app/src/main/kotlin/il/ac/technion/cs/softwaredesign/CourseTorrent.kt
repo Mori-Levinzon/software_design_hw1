@@ -1,9 +1,7 @@
 package il.ac.technion.cs.softwaredesign
 
-import com.github.kittinunf.fuel.httpGet
 import com.google.inject.Inject
 import il.ac.technion.cs.softwaredesign.exceptions.TrackerException
-import java.lang.Exception
 import kotlin.streams.toList
 
 
@@ -29,18 +27,15 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      * @return The infohash of the torrent, i.e., the SHA-1 of the `info` key of [torrent].
      */
     fun load(torrent: ByteArray): String {
-        val torrentData = TorrentFile(torrent)
-        val infohash = torrentData.getInfohash()
-        database.setCurrentStorage(Databases.TORRENTS)
+        val torrentData = TorrentFile.deserialize(torrent)
+        val infohash = torrentData.infohash
         try {
-            database.create(infohash, torrentData.getBencodedString().toByteArray())
+            database.torrentsCreate(infohash, torrentData.announceList)
         } catch (e : IllegalStateException) {
             throw IllegalStateException("Same infohash already loaded")
         }
-        database.setCurrentStorage(Databases.PEERS)
-        database.create(infohash, Ben.encodeStr(listOf<Map<String, Any>>()).toByteArray())
-        database.setCurrentStorage(Databases.STATS)
-        database.create(infohash, Ben.encodeStr(mapOf<String, Any>()).toByteArray())
+        database.peersCreate(infohash, listOf())
+        database.statsCreate(infohash, mapOf())
         return infohash
     }
 
@@ -53,16 +48,14 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      */
     fun unload(infohash: String): Unit {
         try {
-            database.setCurrentStorage(Databases.TORRENTS)
-            database.delete(infohash)
-            database.setCurrentStorage(Databases.PEERS)
-            database.delete(infohash)
-            database.setCurrentStorage(Databases.STATS)
-            database.delete(infohash)
+            database.torrentsDelete(infohash)
+            database.peersDelete(infohash)
+            database.statsDelete(infohash)
         } catch (e : IllegalArgumentException) {
             throw IllegalArgumentException("Infohash doesn't exist")
         }
     }
+
     /**
      * Return the announce URLs for the loaded torrent identified by [infohash].
      *
@@ -77,17 +70,10 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      * @return Tier lists of announce URLs.
      */
     fun announces(infohash: String): List<List<String>> {
-        database.setCurrentStorage(Databases.TORRENTS)
-        val torrent : ByteArray
-        try {
-            torrent = database.read(infohash)
-        } catch (e: IllegalArgumentException) {
-            throw IllegalArgumentException("Infohash doesn't exist")
-        }
-        val torrentData =
-                TorrentFile(torrent) //safe because it was checked in load
+        val torrentData = TorrentFile(infohash, database.torrentsRead(infohash)) //throws IllegalArgumentException
         return torrentData.announceList
     }
+
     /**
      * Send an "announce" HTTP request to a single tracker of the torrent identified by [infohash], and update the
      * internal state according to the response. The specification for these requests can be found here:
@@ -119,8 +105,7 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      * @return The interval in seconds that the client should wait before announcing again.
      */
     fun announce(infohash: String, event: TorrentEvent, uploaded: Long, downloaded: Long, left: Long): Int {
-        database.setCurrentStorage(Databases.TORRENTS)
-        val torrentFile = TorrentFile(database.read(infohash)) //throws IllegalArgumentException
+        val torrentFile = TorrentFile(infohash, database.torrentsRead(infohash)) //throws IllegalArgumentException
         if(event == TorrentEvent.STARTED) torrentFile.shuffleAnnounceList()
         val params = listOf("info_hash" to infohash,
                     "peer_id" to this.getPeerID(),
@@ -130,12 +115,10 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
                     "left" to left.toString(),
                     "compact" to "1",
                     "event" to event.asString)
-        val response = torrentFile.announceTracker(params, database, infohash) //throws TrackerException
-        val peers:List<Map<String, Any>> = Utils.getPeersFromResponse(response)
-        database.setCurrentStorage(Databases.TORRENTS)
-        database.update(infohash, torrentFile.toByteArray())
-        database.setCurrentStorage(Databases.PEERS)
-        database.update(infohash, Ben.encodeStr(peers).toByteArray())
+        val response = torrentFile.announceTracker(params, database) //throws TrackerException
+        val peers:List<Map<String, String>> = Utils.getPeersFromResponse(response)
+        database.torrentsUpdate(infohash, torrentFile.announceList)
+        database.peersUpdate(infohash, peers)
         return response["interval"] as Int
     }
 
@@ -151,17 +134,11 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      * @throws IllegalArgumentException If [infohash] is not loaded.
      */
     fun scrape(infohash: String): Unit {
-        val torrentFile = TorrentFile(database.read(infohash)) //throws IllegalArgumentException
-        val torrentAllStats = torrentFile.scrapeTrackers(infohash, database)
-
+        val torrentFile = TorrentFile(infohash, database.torrentsRead(infohash)) //throws IllegalArgumentException
+        val torrentAllStats = torrentFile.scrapeTrackers(database)
         //update the current stats of the torrent file in the stats db
-        database.setCurrentStorage(Databases.STATS)
-        database.update(infohash,Ben.encodeStr(torrentAllStats).toByteArray())
-
+        database.statsUpdate(infohash, torrentAllStats)
     }
-
-
-
 
     /**
      * Invalidate a previously known peer for this torrent.
@@ -173,13 +150,9 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      * @throws IllegalArgumentException If [infohash] is not loaded.
      */
     fun invalidatePeer(infohash: String, peer: KnownPeer): Unit {
-        database.setCurrentStorage(Databases.PEERS)
-        val peersByteArray = database.read(infohash) //throws IllegalArgumentException
-        val peersList :List<Map<String, Any>> = Ben(peersByteArray).decode() as List<Map<String, Any>>
+        val peersList = database.peersRead(infohash) //throws IllegalArgumentException
         val newPeerslist = peersList.filter { it->  (it["IP"] != peer.ip)  }
-
-        database.update(infohash, Ben.encodeStr(newPeerslist).toByteArray())
-
+        database.peersUpdate(infohash, newPeerslist)
     }
 
     /**
@@ -196,12 +169,10 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      * @return Sorted list of known peers.
      */
     fun knownPeers(infohash: String): List<KnownPeer> {
-        database.setCurrentStorage(Databases.PEERS)
-        val peersByteArray = database.read(infohash) //throws IllegalArgumentException
-        val peersList :List<Map<String, Any>> = Ben(peersByteArray).decode() as List<Map<String, Any>>
-
-        val sortedPeers = peersList.stream().map { it -> KnownPeer(it["ip"] as String,it["port"] as Int,it["peerId"] as String?)}.sorted { o1, o2 -> Utils.compareIPs(o1.ip,o2.ip)}.toList()
-
+        val peersList = database.peersRead(infohash) //throws IllegalArgumentException
+        val sortedPeers = peersList.stream().map {
+            it -> KnownPeer(it["ip"] as String,it["port"] as Int,it["peerId"] as String?)
+        }.sorted { o1, o2 -> Utils.compareIPs(o1.ip,o2.ip)}.toList()
         return sortedPeers
     }
 
@@ -224,9 +195,7 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      * @return A mapping from tracker announce URL to statistics.
      */
     fun trackerStats(infohash: String): Map<String, ScrapeData> {
-        database.setCurrentStorage(Databases.STATS)
-        val statsByteArray = database.read(infohash) //throws IllegalArgumentException
-        val dbStatsMap = Ben(statsByteArray).decode() as Map<String,Any>
+        val dbStatsMap = database.statsRead(infohash) //throws IllegalArgumentException
         val trackerStatsMap = hashMapOf<String, ScrapeData>()
         for ((trackerUrl, trackerValue) in dbStatsMap) {
             val trackerMap = trackerValue as Map<String, Any>

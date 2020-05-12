@@ -6,6 +6,7 @@ package il.ac.technion.cs.softwaredesign
  * I modified the code such that the "pieces" key would have its value taken as ByteArray and not parsed,
  * while "info" will have a regular dictionary under it, in addition to the original info ByteArray under "infoEncoded"
  * I also made the class accept a ByteArray rather than a string
+ * I also fixed some bugs that were in the original code, unfortunately
  */
 class Ben(val byteArray: ByteArray, var i: Int = 0) {
     private var isPieces = false

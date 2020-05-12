@@ -53,14 +53,14 @@ class Utils {
          * If the response is not compact, return string as-is. Otherwise, turn the compact string
          * into non-compact and then return
          */
-        fun getPeersFromResponse(response: Map<String, Any>):List<Map<String, Any>> {
+        fun getPeersFromResponse(response: Map<String, Any>):List<Map<String, String>> {
             assert(response.containsKey("peers"))
             if(response["peers"] is List<*>) {
-                return response["peers"] as List<Map<String, Any>>
+                return response["peers"] as List<Map<String, String>>
             }
             else {
                 val peersByteArray = (response["peers"] as String).toByteArray()
-                val peers = mutableListOf<Map<String, Any>>()
+                val peers = mutableListOf<Map<String, String>>()
                 var i = 0
                 while(i < peersByteArray.size) {
                     peers.add(mapOf(
