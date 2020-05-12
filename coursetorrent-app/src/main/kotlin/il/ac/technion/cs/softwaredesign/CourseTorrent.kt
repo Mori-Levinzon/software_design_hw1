@@ -131,12 +131,12 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
                     "left" to left.toString(),
                     "compact" to "1",
                     "event" to event.asString)
-        val response = torrentFile.announceTracker(params) //throws TrackerException
+        val response = torrentFile.announceTracker(params, database, infohash) //throws TrackerException
         val peers:List<Map<String, Any>> = Utils.getPeersFromResponse(response)
+        database.setCurrentStorage(Databases.TORRENTS)
         database.update(infohash, torrentFile.toByteArray())
         database.setCurrentStorage(Databases.PEERS)
         database.update(infohash, Ben.encodeStr(peers).toByteArray())
-        this.updateStatsAfterAnnounce(infohash, response)
         return response["interval"] as Int
     }
 
@@ -152,42 +152,40 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      * @throws IllegalArgumentException If [infohash] is not loaded.
      */
     fun scrape(infohash: String): Unit {
-        val torrentAllStats = LinkedHashMap<String,Any>()
-
+        //TODO function is too big, split into helper functions (maybe in TorrentFile.kt?)
+        //TODO read the old STATS and don't change the name if it was set before and is now null
+        val torrentAllStats = HashMap<String,Any>()
+        database.setCurrentStorage(Databases.TORRENTS)
         val torrentFile = TorrentFile(database.read(infohash)) //throws IllegalArgumentException
         for(tier in torrentFile.announceList) {
             for(trackerURL in tier) {
-                val changableUrl =trackerURL
+                val scrapeURL =trackerURL
                 //find the last accourance of '/' and if it followed by "announce" then change to string to "scrape" and send request
-                var lastSlash = changableUrl.lastIndexOf('/')
-                if (changableUrl.substring(lastSlash,lastSlash+"announce".length) == "announce"){
-                    changableUrl.replaceAfterLast("/announce","/scrape")
+                var lastSlash = scrapeURL.lastIndexOf('/')
+                if (scrapeURL.substring(lastSlash,lastSlash+"announce".length) == "announce"){
+                    scrapeURL.replaceAfterLast("/announce","/scrape")
                     val params = listOf("info_hash" to infohash)
 
-                    val responseMessageString : String = ""
-                    try{
-                        val responseMessageMap = changableUrl.httpGet(params).response().second.responseMessage
-                    }catch (e : Exception) {
-                        throw java.lang.IllegalArgumentException("Invalid metainfo file")
+                    var currentStatsDict : Map<String, Any>
+                    try {
+                        val responseMessageString = scrapeURL.httpGet(params).response().second.responseMessage
+                        currentStatsDict = Ben(responseMessageString.toByteArray()).decode() as Map<String, Any>
+                    } catch (e : Exception) {
+                        currentStatsDict = mapOf("failure reason" to "Connection failed")
                     }
 
-                    val currentStatsDict : LinkedHashMap<String, Any> = LinkedHashMap<String, Any>()
-                    try {
-                        val currentStatsDict = Ben(responseMessageString.toByteArray()).decode() as? Map<String, Any>?
-                    } catch (e : Exception) {
-                        throw java.lang.IllegalArgumentException("Invalid metainfo file")
+
+                    if (currentStatsDict.isEmpty()) {
+                        currentStatsDict = mapOf("failure reason" to "Connection failed")
                     }
 
                     when {
-                        currentStatsDict.isEmpty() -> {
-                            currentStatsDict["failure_reason"] = "empty bencoded dictionary"
-                        }
-                        currentStatsDict.containsKey("failure_reason") -> {
-                            torrentAllStats[trackerURL] = currentStatsDict as Map<String, Any>
+                        currentStatsDict.containsKey("failure reason") -> {
+                            torrentAllStats[trackerURL] = currentStatsDict
                         }
                         else -> {
                             //insert the stats about the current files
-                            torrentAllStats[trackerURL] = currentStatsDict["files"] as Map<String, Any>
+                            torrentAllStats[trackerURL] = (currentStatsDict["files"] as Map<String, Any>)[infohash] as Map<String, Any>
                         }
                     }
 
@@ -263,7 +261,24 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      * @throws IllegalArgumentException If [infohash] is not loaded.
      * @return A mapping from tracker announce URL to statistics.
      */
-    fun trackerStats(infohash: String): Map<String, ScrapeData> = TODO("Implement me!")
+    fun trackerStats(infohash: String): Map<String, ScrapeData> {
+        database.setCurrentStorage(Databases.STATS)
+        val statsByteArray = database.read(infohash) //throws IllegalArgumentException
+        val dbStatsMap = Ben(statsByteArray).decode() as Map<String,Any>
+        val trackerStatsMap = hashMapOf<String, ScrapeData>()
+        for ((trackerUrl, trackerValue) in dbStatsMap) {
+            val trackerMap = trackerValue as Map<String, Any>
+            if(trackerMap.containsKey("failure reason")) {
+                trackerStatsMap[trackerUrl] = Failure(trackerMap["failure reason"] as String)
+            } else {
+                trackerStatsMap[trackerUrl] = Scrape(trackerMap["complete"] as Int,
+                        trackerMap["downloaded"] as Int,
+                        trackerMap["incomplete"] as Int,
+                        trackerMap["name"] as? String?)
+            }
+        }
+        return trackerStatsMap
+    }
 
     /**
      * Returns the peer ID of the client
@@ -279,6 +294,4 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
         builder.append(alphaNumericID)
         return builder.toString()
     }
-
-    private fun updateStatsAfterAnnounce(infohash : String, response : Map<String, Any>) : Unit = TODO("Implement me!")
 }

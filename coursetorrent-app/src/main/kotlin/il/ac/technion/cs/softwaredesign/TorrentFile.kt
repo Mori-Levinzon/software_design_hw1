@@ -76,37 +76,51 @@ class TorrentFile(torrent: ByteArray) {
      * -The trackerid functionality is *not* required in the assignment (Matan said)
      * -This function is also responsible for reordering the trackers if necessary,
      *  as requested by the BitTorrent specification
+     * -This function also updates the tracker stats for every tracker it attempts
+     *  to get a response from
      * @throws TrackerException if no trackers return a non-failure response
      * @returns the response string from the tracker, de-bencoded
      */
-    fun announceTracker(params: List<Pair<String, String>>) : Map<String, Any> {
+    fun announceTracker(params: List<Pair<String, String>>, database: SimpleDB, dbKey: String) : Map<String, Any> {
+        database.setCurrentStorage(Databases.STATS)
+        val trackerStats = (Ben(database.read(dbKey)).decode() as Map<String, Any>).toMutableMap()
         var lastErrorMessage = "Empty announce list"
         for(tier in this.announceList) {
             for(trackerURL in tier) {
                 val (_, _, result) = trackerURL.httpGet(params).response()
                 if(result is Result.Failure) {
-                    lastErrorMessage = "HTTP connection failed"
+                    lastErrorMessage = "Connection failed"
+                    trackerStats[trackerURL] = mapOf("failure reason" to lastErrorMessage)
                     continue
                 }
                 else {
                     //successful connection
                     val responseMap : Map<String, Any>? = Ben(result.get()).decode() as? Map<String, Any>?
                     if(responseMap == null || !responseMap.containsKey("peers")) {
-                        lastErrorMessage = "HTTP response invalid"
+                        lastErrorMessage = "Connection failed" //response invalid
+                        trackerStats[trackerURL] = mapOf("failure reason" to lastErrorMessage)
                         continue
                     }
                     if(responseMap.containsKey("failure reason")) {
                         lastErrorMessage = responseMap["failure reason"] as String
+                        trackerStats[trackerURL] = mapOf("failure reason" to lastErrorMessage)
                         continue
                     }
                     //reorder the tier to have the successful tracker at index 0
                     tier.remove(trackerURL)
                     tier.add(0, trackerURL)
+                    //update tracker stats
+                    trackerStats[trackerURL] = Scrape(responseMap["complete"] as Int,
+                            (trackerStats[trackerURL] as? Map<String, Any>?)?.get("downloaded") as? Int ?: 0,
+                            responseMap["incomplete"] as Int,
+                            (trackerStats[trackerURL] as? Map<String, Any>?)?.get("name") as? String?)
+                    database.update(dbKey, Ben.encodeStr(trackerStats).toByteArray())
                     //return the response map
                     return responseMap
                 }
             }
         }
+        database.update(dbKey, Ben.encodeStr(trackerStats).toByteArray())
         throw TrackerException(lastErrorMessage)
     }
 }
