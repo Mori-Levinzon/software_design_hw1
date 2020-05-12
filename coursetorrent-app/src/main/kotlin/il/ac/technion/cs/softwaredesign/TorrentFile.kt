@@ -25,12 +25,16 @@ class TorrentFile(torrent: ByteArray) {
         } catch (e : Exception) {
             throw IllegalArgumentException("Invalid metainfo file")
         }
-        if(!torrentData.containsKey("info")) throw IllegalArgumentException("Invalid metainfo file")
+        if(!torrentData.containsKey("infoEncoded")) {
+            info = ByteArray(0)
+        }
+        else {
+            info = torrentData["infoEncoded"] as ByteArray
+        }
 
         creationDate = torrentData["creation date"] as? String?
         comment = torrentData["comment"] as? String?
         createdBy = torrentData["created by"] as? String?
-        info = torrentData["infoEncoded"] as ByteArray
         if(torrentData.containsKey("announce-list")) {
             try {
                 announceList = torrentData["announce-list"] as MutableList<MutableList<String>>
@@ -53,6 +57,12 @@ class TorrentFile(torrent: ByteArray) {
     }
 
     fun getInfohash() : String = Utils.sha1hash(info)
+
+    public fun getBencodedString() : String {
+        val torrentMap = HashMap<String, Any>()
+        torrentMap.put("announce-list", announceList)
+        return Ben.encodeStr(torrentMap)
+    }
 
     /**
      * Shuffles the order in each tier of the announcelist

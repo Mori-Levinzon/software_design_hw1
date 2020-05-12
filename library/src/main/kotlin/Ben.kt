@@ -35,7 +35,7 @@ class Ben(val byteArray: ByteArray, var i: Int = 0) {
      * Should only be called once (except for the recursive calls)
      */
     fun decode(): Any = when ({currChar = read(1)[0]; currChar}.invoke()) {
-        'i' -> readUntil('e').toInt()
+        'i' -> readUntil('e').toLong()
         'l' -> ArrayList<Any>().apply {
             var obj = decode()
             while (obj != Unit) {
@@ -71,7 +71,7 @@ class Ben(val byteArray: ByteArray, var i: Int = 0) {
             readBytes((currChar + readUntil(':')).toInt())
         }
         else {
-            read((currChar + readUntil(':')).toInt())
+            String(readBytes((currChar + readUntil(':')).toInt()), charset)
         }
         else -> throw IllegalStateException("Byte: ${i}")
     }
@@ -79,7 +79,7 @@ class Ben(val byteArray: ByteArray, var i: Int = 0) {
     companion object {
         fun encodeStr(obj: Any): String = when (obj) {
             is Int -> "i${obj}e"
-            is String -> "${obj.length}:$obj"
+            is String -> "${obj.toByteArray().size}:$obj"
             is List<*> -> "l${obj.joinToString("") {
                 encodeStr(
                     it!!

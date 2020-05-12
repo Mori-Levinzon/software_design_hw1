@@ -34,7 +34,7 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
         val infohash = torrentData.getInfohash()
         database.setCurrentStorage(Databases.TORRENTS)
         try {
-            database.create(infohash, torrent)
+            database.create(infohash, torrentData.getBencodedString().toByteArray())
         } catch (e : IllegalStateException) {
             throw IllegalStateException("Same infohash already loaded")
         }
