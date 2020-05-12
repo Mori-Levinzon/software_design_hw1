@@ -123,4 +123,79 @@ class TorrentFile(torrent: ByteArray) {
         database.update(dbKey, Ben.encodeStr(trackerStats).toByteArray())
         throw TrackerException(lastErrorMessage)
     }
+
+    /**
+     * -Scrapes tracker
+     * -This function also updates the tracker stats for every tracker if it can be scraped
+     * @throws IllegalArgumentException If [infohash] is not loaded.
+     */
+    fun scrapeTrackers(infohash: String, database: SimpleDB):  Map<String, Any>{
+        database.setCurrentStorage(Databases.STATS)
+        val torrentAllStats = (Ben(database.read(infohash)).decode() as Map<String, Any>).toMutableMap()
+
+        database.setCurrentStorage(Databases.TORRENTS)
+        val torrentFile = TorrentFile(database.read(infohash)) //throws IllegalArgumentException
+        for (tier in torrentFile.announceList) {
+            for (trackerURL in tier) {
+                val scrapeURL = trackerURL
+                //find the last accourance of '/' and if it followed by "announce" then change to string to "scrape" and send request
+                var lastSlash = scrapeURL.lastIndexOf('/')
+                if (scrapeURL.substring(lastSlash, lastSlash + "announce".length) == "announce") {
+
+                    var newTrackerStatsMap: Map<String, Any> = sendScrapeRequest(scrapeURL, infohash)
+
+                    newTrackerStatsMap = updateCurrentTrackerStats(newTrackerStatsMap, torrentAllStats, trackerURL, infohash)
+
+                }
+            }
+        }
+        return torrentAllStats
+    }
+
+    /**
+     * -Update the tracker stats according to the response map received from the HTTP get request
+     */
+    private fun updateCurrentTrackerStats(newTrackerStatsMap: Map<String, Any>, torrentAllStats: MutableMap<String, Any>, trackerURL: String, infohash: String): Map<String, Any> {
+        var changedTrackerStats = newTrackerStatsMap
+        if (changedTrackerStats.isEmpty()) {
+            changedTrackerStats = mapOf("failure reason" to "Connection failed")
+        }
+
+        var oldName = (torrentAllStats[trackerURL] as? Map<String, Any>?)?.get("name") as? String?
+
+        when {
+            changedTrackerStats.containsKey("failure reason") -> {
+                torrentAllStats[trackerURL] = mapOf("name" to ((changedTrackerStats[trackerURL] as? Map<String, Any>?)?.get("name") as? String
+                        ?: oldName),
+                        "failure reason" to changedTrackerStats["recievedDict"]) as Map<String, Any>
+            }
+            else -> {
+                //insert the stats about the current files
+                torrentAllStats[trackerURL] = (changedTrackerStats["files"] as Map<String, Any>)[infohash] as Map<String, Any>
+                torrentAllStats[trackerURL] = Scrape((changedTrackerStats["files"] as? Map<String, Any>?)?.get("complete") as? Int
+                        ?: 0,
+                        (changedTrackerStats["files"] as? Map<String, Any>?)?.get("downloaded") as? Int ?: 0,
+                        (changedTrackerStats["files"] as? Map<String, Any>?)?.get("incomplete") as? Int ?: 0,
+                        (changedTrackerStats[trackerURL] as? Map<String, Any>?)?.get("name") as? String ?: oldName)
+            }
+        }
+        return changedTrackerStats
+    }
+
+    /**
+     * -Send HTTP ger request and decode the received map
+     */
+    private fun sendScrapeRequest(scrapeURL: String, infohash: String): Map<String, Any> {
+        scrapeURL.replaceAfterLast("/announce", "/scrape")
+        val params = listOf("info_hash" to infohash)
+
+        var newTrackerStatsMap: Map<String, Any>
+        try {
+            val responseMessageString = scrapeURL.httpGet(params).response().second.responseMessage
+            newTrackerStatsMap = Ben(responseMessageString.toByteArray()).decode() as Map<String, Any>
+        } catch (e: Exception) {
+            newTrackerStatsMap = mapOf("failure reason" to "Connection failed")
+        }
+        return newTrackerStatsMap
+    }
 }

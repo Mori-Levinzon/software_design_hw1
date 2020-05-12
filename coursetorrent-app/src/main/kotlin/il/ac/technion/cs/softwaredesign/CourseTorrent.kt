@@ -4,7 +4,6 @@ import com.github.kittinunf.fuel.httpGet
 import com.google.inject.Inject
 import il.ac.technion.cs.softwaredesign.exceptions.TrackerException
 import java.lang.Exception
-import kotlin.collections.LinkedHashMap
 import kotlin.streams.toList
 
 
@@ -152,52 +151,15 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      * @throws IllegalArgumentException If [infohash] is not loaded.
      */
     fun scrape(infohash: String): Unit {
-        //TODO function is too big, split into helper functions (maybe in TorrentFile.kt?)
-        //TODO read the old STATS and don't change the name if it was set before and is now null
-        val torrentAllStats = HashMap<String,Any>()
-        database.setCurrentStorage(Databases.TORRENTS)
         val torrentFile = TorrentFile(database.read(infohash)) //throws IllegalArgumentException
-        for(tier in torrentFile.announceList) {
-            for(trackerURL in tier) {
-                val scrapeURL =trackerURL
-                //find the last accourance of '/' and if it followed by "announce" then change to string to "scrape" and send request
-                var lastSlash = scrapeURL.lastIndexOf('/')
-                if (scrapeURL.substring(lastSlash,lastSlash+"announce".length) == "announce"){
-                    scrapeURL.replaceAfterLast("/announce","/scrape")
-                    val params = listOf("info_hash" to infohash)
+        val torrentAllStats = torrentFile.scrapeTrackers(infohash, database)
 
-                    var currentStatsDict : Map<String, Any>
-                    try {
-                        val responseMessageString = scrapeURL.httpGet(params).response().second.responseMessage
-                        currentStatsDict = Ben(responseMessageString.toByteArray()).decode() as Map<String, Any>
-                    } catch (e : Exception) {
-                        currentStatsDict = mapOf("failure reason" to "Connection failed")
-                    }
-
-
-                    if (currentStatsDict.isEmpty()) {
-                        currentStatsDict = mapOf("failure reason" to "Connection failed")
-                    }
-
-                    when {
-                        currentStatsDict.containsKey("failure reason") -> {
-                            torrentAllStats[trackerURL] = currentStatsDict
-                        }
-                        else -> {
-                            //insert the stats about the current files
-                            torrentAllStats[trackerURL] = (currentStatsDict["files"] as Map<String, Any>)[infohash] as Map<String, Any>
-                        }
-                    }
-
-
-                }
-            }
-        }
         //update the current stats of the torrent file in the stats db
         database.setCurrentStorage(Databases.STATS)
         database.update(infohash,Ben.encodeStr(torrentAllStats).toByteArray())
 
     }
+
 
 
 
