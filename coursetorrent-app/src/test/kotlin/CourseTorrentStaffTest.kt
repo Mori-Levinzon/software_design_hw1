@@ -9,16 +9,15 @@ import io.mockk.mockk
 import io.mockk.slot
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.api.assertDoesNotThrow
 import java.lang.IllegalArgumentException
 import java.lang.IllegalStateException
 
-class CourseTorrentTest {
+class CourseTorrentStaffTest {
     private val injector = Guice.createInjector(CourseTorrentModule())
     private var torrent = injector.getInstance<CourseTorrent>()
-    private var inMemoryDB = HashMap<String, ByteArray>()
     private val debian = this::class.java.getResource("/debian-10.3.0-amd64-netinst.iso.torrent").readBytes()
-    private val ubuntu = this::class.java.getResource("/ubuntu-18.04.4-desktop-amd64.iso.torrent").readBytes()
+    private val lame = this::class.java.getResource("/lame.torrent").readBytes()
     private var torrentsStorage = HashMap<String, ByteArray>()
     private var peersStorage = HashMap<String, ByteArray>()
     private var statsStorage = HashMap<String, ByteArray>()
@@ -88,57 +87,10 @@ class CourseTorrentTest {
     }
 
     @Test
-    fun `load rejects invalid file`() {
-        assertThrows<IllegalArgumentException> { torrent.load("invalid metainfo file".toByteArray(Charsets.UTF_8)) }
-    }
-
-    @Test
-    fun `after load, can't load again`() {
-        torrent.load(debian)
-
-        assertThrows<IllegalStateException> { torrent.load(debian) }
-    }
-
-    @Test
-    fun `after unload, can load again`() {
+    fun `after load, announce is correct`() {
         val infohash = torrent.load(debian)
 
-        torrent.unload(infohash)
-
-        assertThat(torrent.load(debian), equalTo(infohash))
-    }
-
-    @Test
-    fun `can't unload a new file`() {
-        assertThrows<IllegalArgumentException> { torrent.unload("infohash") }
-    }
-
-    @Test
-    fun `can't unload a file twice`() {
-        val infohash = torrent.load(ubuntu)
-
-        torrent.unload(infohash)
-
-        assertThrows<IllegalArgumentException> { torrent.unload(infohash) }
-    }
-
-    @Test
-    fun `torrent with announce-list works correctly`() {
-        val infohash = torrent.load(ubuntu)
-
-        val announces = torrent.announces(infohash)
-
-        assertThat(announces, allElements(hasSize(equalTo(1))))
-        assertThat(announces, hasSize(equalTo(2)))
-        assertThat(announces[0][0], equalTo("https://torrent.ubuntu.com/announce"))
-        assertThat(announces[1][0], equalTo("https://ipv6.torrent.ubuntu.com/announce"))
-    }
-
-    @Test
-    fun `torrent with announce (not list) works correctly`() {
-        val infohash = torrent.load(debian)
-
-        val announces = torrent.announces(infohash)
+        val announces = assertDoesNotThrow { torrent.announces(infohash) }
 
         assertThat(announces, allElements(hasSize(equalTo(1))))
         assertThat(announces, hasSize(equalTo(1)))
@@ -146,16 +98,66 @@ class CourseTorrentTest {
     }
 
     @Test
-    fun `announces rejects unloaded torrents`() {
-        val infohash = torrent.load(ubuntu)
-        torrent.unload(infohash)
+    fun `client announces to tracker`() {
+        val infohash = torrent.load(lame)
 
-        assertThrows<IllegalArgumentException> { torrent.announces(infohash) }
+        /* interval is 360 */
+        val interval = torrent.announce(infohash, TorrentEvent.STARTED, 0, 0, 0)
+
+        assertThat(interval, equalTo(360))
+        /* Assertion to verify that the tracker was actually called */
     }
 
     @Test
-    fun `announces rejects unrecognized torrents`() {
-        assertThrows<IllegalArgumentException> { torrent.announces("new infohash") }
+    fun `client scrapes tracker and updates statistics`() {
+        val infohash = torrent.load(lame)
+
+        /* Tracker has infohash, 0 complete, 0 downloaded, 0 incomplete, no name key */
+        assertDoesNotThrow { torrent.scrape(infohash) }
+
+        assertThat(
+            torrent.trackerStats(infohash),
+            equalTo(mapOf(Pair("http://127.0.0.1:8082", Scrape(0, 0, 0, null) as ScrapeData)))
+        )
+        /* Assertion to verify that the tracker was actually called */
     }
 
+    @Test
+    fun `after announce, client has up-to-date peer list`() {
+        val infohash = torrent.load(lame)
+
+        /* Returned peer list is: [("127.0.0.22", 6887)] */
+        torrent.announce(infohash, TorrentEvent.STARTED, 0, 0, 2703360)
+        /* Returned peer list is: [("127.0.0.22", 6887), ("127.0.0.21", 6889)] */
+        torrent.announce(infohash, TorrentEvent.REGULAR, 0, 81920, 2621440)
+
+
+        assertThat(
+            torrent.knownPeers(infohash),
+            anyElement(has(KnownPeer::ip, equalTo("127.0.0.22")) and has(KnownPeer::port, equalTo(6887)))
+        )
+        assertThat(
+            torrent.knownPeers(infohash),
+            anyElement(has(KnownPeer::ip, equalTo("127.0.0.21")) and has(KnownPeer::port, equalTo(6889)))
+        )
+        assertThat(
+            torrent.knownPeers(infohash), equalTo(torrent.knownPeers(infohash).distinct())
+        )
+    }
+
+    @Test
+    fun `peers are invalidated correctly`() {
+        val infohash = torrent.load(lame)
+        /* Returned peer list is: [("127.0.0.22", 6887)] */
+        torrent.announce(infohash, TorrentEvent.STARTED, 0, 0, 2703360)
+        /* Returned peer list is: [("127.0.0.22", 6887), ("127.0.0.21", 6889)] */
+        torrent.announce(infohash, TorrentEvent.REGULAR, 0, 81920, 2621440)
+
+        torrent.invalidatePeer(infohash, KnownPeer("127.0.0.22", 6887, null))
+
+        assertThat(
+            torrent.knownPeers(infohash),
+            anyElement(has(KnownPeer::ip, equalTo("127.0.0.21")) and has(KnownPeer::port, equalTo(6889))).not()
+        )
+    }
 }
