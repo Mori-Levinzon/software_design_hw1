@@ -28,7 +28,6 @@ class CourseTorrentHW1Test {
     private var statsStorage = HashMap<String, ByteArray>()
 
     //TODO: stress test!!!
-    //TODO: replace http requests since there is no Connection with the server
     //TODO: need to check the type of exceptions thrown by the mocked db
     //TODO: refactor the mocked db to a single class to be instance from each time for each test class
     @BeforeEach
@@ -67,12 +66,15 @@ class CourseTorrentHW1Test {
         }
 
         every { memoryDB.torrentsRead(capture(key)) } answers {
+            if(!statsStorage.containsKey(key.captured)) throw IllegalArgumentException()
             Ben(torrentsStorage[key.captured] as ByteArray).decode() as List<List<String>>? ?: throw IllegalArgumentException()
         }
         every { memoryDB.peersRead(capture(key)) } answers {
+            if(!statsStorage.containsKey(key.captured)) throw IllegalArgumentException()
             Ben(peersStorage[key.captured] as ByteArray).decode() as List<Map<String, String>>? ?: throw IllegalArgumentException()
         }
         every { memoryDB.statsRead(capture(key)) } answers {
+            if(!statsStorage.containsKey(key.captured)) throw IllegalArgumentException()
             Ben(statsStorage[key.captured] as ByteArray).decode() as Map<String, Map<String, Any>>? ?: throw IllegalArgumentException()
         }
 
@@ -157,13 +159,24 @@ class CourseTorrentHW1Test {
     }
 
     @Test
-    fun `client announces to tracker`() {
+    fun `client announces to tracker debian`() {
         val infohash = torrent.load(debian)
 
         /* interval is 360 */
         val interval = torrent.announce(infohash, TorrentEvent.STARTED, 0, 0, 0)
 
-        assertThat(interval, equalTo(360))
+        assertThat(interval, equalTo(900))
+        /* Assertion to verify that the tracker was actually called */
+    }
+
+    @Test
+    fun `client announces to tracker ubuntu`() {
+        val infohash = torrent.load(ubuntu)
+
+        /* interval is 360 */
+        val interval = torrent.announce(infohash, TorrentEvent.STARTED, 0, 0, 0)
+
+        assertThat(interval, equalTo(1800))
         /* Assertion to verify that the tracker was actually called */
     }
 

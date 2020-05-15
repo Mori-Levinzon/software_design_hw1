@@ -7,7 +7,6 @@ import java.nio.charset.Charset
 
 class CourseTorrentModule : KotlinModule() {
     override fun configure() {
-        //TODO implement what should be implemented
         val injector = Guice.createInjector(SimpleDBModule())
         bind<SimpleDB>().toInstance(injector.getInstance<SimpleDB>())
     }

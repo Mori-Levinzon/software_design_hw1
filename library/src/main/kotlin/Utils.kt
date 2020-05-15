@@ -21,7 +21,17 @@ class Utils {
         }
 
         fun hexEncode(str:String):String {
-            return URLEncoder.encode(str, StandardCharsets.UTF_8.toString())
+            val allowedChars : List<Char> = ('a'..'z') + ('A'..'Z') + ('0'..'9') + ('.') + ('-') + ('_') + ('~')
+            val strHexByteArray = UByteArray(str.length / 2)
+            for(i in str.indices step 2) {
+                val byte = str.substring(i, i+2)
+                strHexByteArray[i/2] = byte.toUByte(radix = 16)
+            }
+            val myHex = strHexByteArray.fold("", {str, it -> str + (when {
+                it.toByte().toChar() in allowedChars -> it.toByte().toChar().toString()
+                else -> "%%%02x".format(it.toByte()).toLowerCase()
+            })})
+            return myHex
         }
 
         fun getRandomChars(length: Int):String {
@@ -59,15 +69,14 @@ class Utils {
                 return response["peers"] as List<Map<String, String>>
             }
             else {
-                val peersByteArray = (response["peers"] as String).toByteArray()
+                val peersByteArray = response["peers"] as ByteArray
                 val peers = mutableListOf<Map<String, String>>()
                 var i = 0
                 while(i < peersByteArray.size) {
                     peers.add(mapOf(
-                            "peer id" to "",
-                            "ip" to (peersByteArray[i].toString() + "." + peersByteArray[i+1].toString() + "."
-                                    + peersByteArray[i+2].toString() + "." + peersByteArray[i+3].toString()),
-                            "port" to (peersByteArray[i+4]* 256 + peersByteArray[i+5]).toString()
+                            "ip" to (peersByteArray[i].toUByte().toInt().toString() + "." + peersByteArray[i+1].toUByte().toInt().toString() + "."
+                                    + peersByteArray[i+2].toUByte().toInt().toString() + "." + peersByteArray[i+3].toUByte().toInt().toString()),
+                            "port" to (peersByteArray[i+4].toUByte().toInt() * 256 + peersByteArray[i+5].toUByte().toInt()).toString()
                     ))
                     i += 6
                 }
@@ -75,5 +84,13 @@ class Utils {
             }
         }
 
+        fun String.withParams(params: List<Pair<String, String>>) : String {
+            var toReturn = this + "?"
+            for((key, value) in params.dropLast(1)) {
+                toReturn = toReturn + key + "=" + value + "&"
+            }
+            toReturn = toReturn + params.last().first + "=" + params.last().second
+            return toReturn
+        }
     }
 }

@@ -60,6 +60,12 @@ class Ben(val byteArray: ByteArray, var i: Int = 0) {
                     val info = byteArray.sliceArray(IntRange(startIndex, i - 1))
                     put(obj as String, info)
                 }
+                else if (obj as String == "peers") {
+                    //TODO deal with non compact response
+                    isPieces = true
+                    val info = decode()
+                    put(obj as String, info)
+                }
                 else {
                     put(obj as String, decode())
                 }
@@ -80,6 +86,7 @@ class Ben(val byteArray: ByteArray, var i: Int = 0) {
     companion object {
         fun encodeStr(obj: Any): String = when (obj) {
             is Int -> "i${obj}e"
+            is Long -> "i${obj}e"
             is String -> "${obj.toByteArray().size}:$obj"
             is List<*> -> "l${obj.joinToString("") {
                 encodeStr(

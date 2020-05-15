@@ -2,6 +2,7 @@ package il.ac.technion.cs.softwaredesign
 
 import com.github.kittinunf.fuel.httpGet
 import com.github.kittinunf.result.Result
+import il.ac.technion.cs.softwaredesign.Utils.Companion.withParams
 import il.ac.technion.cs.softwaredesign.exceptions.TrackerException
 import java.lang.Exception
 import java.lang.IllegalArgumentException
@@ -71,7 +72,7 @@ class TorrentFile(val infohash : String, immutableList : List<List<String>>) {
         var lastErrorMessage = "Empty announce list"
         for(tier in this.announceList) {
             for(trackerURL in tier) {
-                val (_, _, result) = trackerURL.httpGet(params).response()
+                val (request, response, result) = trackerURL.withParams(params).httpGet().response()
                 if(result is Result.Failure) {
                     lastErrorMessage = "Connection failed"
                     trackerStats[trackerURL] = mapOf("failure reason" to lastErrorMessage)
@@ -94,15 +95,17 @@ class TorrentFile(val infohash : String, immutableList : List<List<String>>) {
                     tier.remove(trackerURL)
                     tier.add(0, trackerURL)
                     //update tracker stats
-                    val name = trackerStats[trackerURL]?.get("name") as? String?
-                    val newScrapeData = mutableMapOf<String, Any>("complete" to responseMap["complete"] as Int,
-                            "downloaded" to (trackerStats[trackerURL]?.get("downloaded") as? Int ?: 0),
-                            "incomplete" to responseMap["incomplete"] as Int)
-                    if(name != null) {
-                        newScrapeData["name"] = name
+                    if(responseMap.containsKey("complete") || responseMap.containsKey("incomplete")) {
+                        val name = trackerStats[trackerURL]?.get("name") as? String?
+                        val newScrapeData = mutableMapOf<String, Any>("complete" to responseMap["complete"] as Long,
+                                "downloaded" to (trackerStats[trackerURL]?.get("downloaded") as? Long ?: 0),
+                                "incomplete" to responseMap["incomplete"] as Long)
+                        if(name != null) {
+                            newScrapeData["name"] = name
+                        }
+                        trackerStats[trackerURL] = newScrapeData
+                        database.statsUpdate(infohash, trackerStats)
                     }
-                    trackerStats[trackerURL] = newScrapeData
-                    database.statsUpdate(infohash, trackerStats)
                     //return the response map
                     return responseMap
                 }

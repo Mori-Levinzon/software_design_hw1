@@ -107,7 +107,7 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
     fun announce(infohash: String, event: TorrentEvent, uploaded: Long, downloaded: Long, left: Long): Int {
         val torrentFile = TorrentFile(infohash, database.torrentsRead(infohash)) //throws IllegalArgumentException
         if(event == TorrentEvent.STARTED) torrentFile.shuffleAnnounceList()
-        val params = listOf("info_hash" to infohash,
+        val params = listOf("info_hash" to Utils.hexEncode(infohash),
                     "peer_id" to this.getPeerID(),
                     "port" to "6881", //Matan said to leave it like that, will be changed in future assignments
                     "uploaded" to uploaded.toString(),
@@ -119,7 +119,7 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
         val peers:List<Map<String, String>> = Utils.getPeersFromResponse(response)
         database.torrentsUpdate(infohash, torrentFile.announceList)
         database.peersUpdate(infohash, peers)
-        return response["interval"] as Int
+        return (response["interval"] as Long).toInt()
     }
 
     /**
@@ -171,7 +171,7 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
     fun knownPeers(infohash: String): List<KnownPeer> {
         val peersList = database.peersRead(infohash) //throws IllegalArgumentException
         val sortedPeers = peersList.stream().map {
-            it -> KnownPeer(it["ip"] as String,it["port"] as Int,it["peerId"] as String?)
+            it -> KnownPeer(it["ip"] as String,it["port"]?.toInt() ?: 0,it["peerId"] as String?)
         }.sorted { o1, o2 -> Utils.compareIPs(o1.ip,o2.ip)}.toList()
         return sortedPeers
     }
@@ -221,7 +221,7 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
         val studentIDs = "206989105308328467"
         val builder = StringBuilder()
         builder.append("-CS1000-")
-        builder.append(Utils.sha1hash(studentIDs.toByteArray()))
+        builder.append(Utils.sha1hash(studentIDs.toByteArray()).substring(0, 6))
         builder.append(alphaNumericID)
         return builder.toString()
     }
