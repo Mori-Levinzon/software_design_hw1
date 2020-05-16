@@ -1,12 +1,16 @@
 package il.ac.technion.cs.softwaredesign
 
+import com.github.kittinunf.fuel.Fuel
+import com.github.kittinunf.fuel.core.Request
+import com.github.kittinunf.fuel.core.Response
+import com.github.kittinunf.fuel.core.ResponseResultOf
+import com.github.kittinunf.fuel.httpGet
+import com.github.kittinunf.result.Result
 import com.google.inject.Guice
 import com.natpryce.hamkrest.*
 import com.natpryce.hamkrest.assertion.assertThat
 import dev.misfitlabs.kotlinguice4.getInstance
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.slot
+import io.mockk.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
@@ -80,6 +84,16 @@ class MockedCourseTorrentStaffTest {
             statsStorage.remove(key.captured) ?: throw IllegalArgumentException()
         }
         torrent = CourseTorrent(memoryDB)
+        unmockkObject(Fuel)
+    }
+
+    private fun mockHttp(response: Any) {
+        mockkObject(Fuel)
+        val myReq = mockk<Request>()
+        val res = Ben.encodeByteArray(response)
+        every { myReq.response() } returns
+                ResponseResultOf<ByteArray>(myReq, Response.error(), Result.success(res))
+        every { any<String>().httpGet() } returns myReq
     }
 
     @Test
@@ -102,25 +116,30 @@ class MockedCourseTorrentStaffTest {
 
     @Test
     fun `client announces to tracker`() {
+        mockHttp(mapOf("interval" to 360,
+                "peers" to ubyteArrayOf(127u, 0u, 0u, 22u, 26u, 231u, 127u, 0u, 0u, 21u, 26u, 233u).toByteArray()))
+
         val infohash = torrent.load(lame)
 
         /* interval is 360 */
         val interval = torrent.announce(infohash, TorrentEvent.STARTED, 0, 0, 0)
 
-        assertThat(interval, equalTo(900))
+        assertThat(interval, equalTo(360))
         /* Assertion to verify that the tracker was actually called */
     }
 
     @Test
     fun `client scrapes tracker and updates statistics`() {
+        mockHttp(mapOf("files" to mapOf("myinfohash" to mapOf("complete" to 0, "incomplete" to 0, "downloaded" to 0))))
+
         val infohash = torrent.load(lame)
 
         /* Tracker has infohash, 0 complete, 0 downloaded, 0 incomplete, no name key */
         assertDoesNotThrow { torrent.scrape(infohash) }
 
         assertThat(
-            torrent.trackerStats(infohash),
-            equalTo(mapOf(Pair("http://127.0.0.1:8082", Scrape(0, 0, 0, null) as ScrapeData)))
+                torrent.trackerStats(infohash),
+                equalTo(mapOf(Pair("https://127.0.0.1:8082/announce", Scrape(0, 0, 0, null) as ScrapeData)))
         )
         /* Assertion to verify that the tracker was actually called */
     }
@@ -129,38 +148,49 @@ class MockedCourseTorrentStaffTest {
     fun `after announce, client has up-to-date peer list`() {
         val infohash = torrent.load(lame)
 
+        mockHttp(mapOf("interval" to 360,
+                "peers" to ubyteArrayOf(127u, 0u, 0u, 22u, 26u, 231u).toByteArray()))
         /* Returned peer list is: [("127.0.0.22", 6887)] */
         torrent.announce(infohash, TorrentEvent.STARTED, 0, 0, 2703360)
+
+        mockHttp(mapOf("interval" to 360,
+                "peers" to ubyteArrayOf(127u, 0u, 0u, 22u, 26u, 231u, 127u, 0u, 0u, 21u, 26u, 233u).toByteArray()))
         /* Returned peer list is: [("127.0.0.22", 6887), ("127.0.0.21", 6889)] */
         torrent.announce(infohash, TorrentEvent.REGULAR, 0, 81920, 2621440)
 
 
         assertThat(
-            torrent.knownPeers(infohash),
-            anyElement(has(KnownPeer::ip, equalTo("127.0.0.22")) and has(KnownPeer::port, equalTo(6887)))
+                torrent.knownPeers(infohash),
+                anyElement(has(KnownPeer::ip, equalTo("127.0.0.22")) and has(KnownPeer::port, equalTo(6887)))
         )
         assertThat(
-            torrent.knownPeers(infohash),
-            anyElement(has(KnownPeer::ip, equalTo("127.0.0.21")) and has(KnownPeer::port, equalTo(6889)))
+                torrent.knownPeers(infohash),
+                anyElement(has(KnownPeer::ip, equalTo("127.0.0.21")) and has(KnownPeer::port, equalTo(6889)))
         )
         assertThat(
-            torrent.knownPeers(infohash), equalTo(torrent.knownPeers(infohash).distinct())
+                torrent.knownPeers(infohash), equalTo(torrent.knownPeers(infohash).distinct())
         )
     }
 
     @Test
     fun `peers are invalidated correctly`() {
         val infohash = torrent.load(lame)
+
+        mockHttp(mapOf("interval" to 360,
+                "peers" to ubyteArrayOf(127u, 0u, 0u, 22u, 26u, 231u).toByteArray()))
         /* Returned peer list is: [("127.0.0.22", 6887)] */
         torrent.announce(infohash, TorrentEvent.STARTED, 0, 0, 2703360)
+
+        mockHttp(mapOf("interval" to 360,
+                "peers" to ubyteArrayOf(127u, 0u, 0u, 22u, 26u, 231u, 127u, 0u, 0u, 21u, 26u, 233u).toByteArray()))
         /* Returned peer list is: [("127.0.0.22", 6887), ("127.0.0.21", 6889)] */
         torrent.announce(infohash, TorrentEvent.REGULAR, 0, 81920, 2621440)
 
         torrent.invalidatePeer(infohash, KnownPeer("127.0.0.22", 6887, null))
 
         assertThat(
-            torrent.knownPeers(infohash),
-            anyElement(has(KnownPeer::ip, equalTo("127.0.0.21")) and has(KnownPeer::port, equalTo(6889))).not()
+                torrent.knownPeers(infohash),
+                anyElement(has(KnownPeer::ip, equalTo("127.0.0.22")) and has(KnownPeer::port, equalTo(6887))).not()
         )
     }
 }

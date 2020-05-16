@@ -73,7 +73,7 @@ class TorrentFile(val infohash : String, immutableList : List<List<String>>) {
         var lastErrorMessage = "Empty announce list"
         for(tier in this.announceList) {
             for(trackerURL in tier) {
-                val (request, response, result) = trackerURL.withParams(params).httpGet().response()
+                val (_, _, result) = trackerURL.withParams(params).httpGet().response()
                 if(result is Result.Failure) {
                     lastErrorMessage = "Connection failed"
                     trackerStats[trackerURL] = mapOf("failure reason" to lastErrorMessage)
@@ -96,17 +96,15 @@ class TorrentFile(val infohash : String, immutableList : List<List<String>>) {
                     tier.remove(trackerURL)
                     tier.add(0, trackerURL)
                     //update tracker stats
-                    if(responseMap.containsKey("complete") || responseMap.containsKey("incomplete")) {
-                        val name = trackerStats[trackerURL]?.get("name") as? String?
-                        val newScrapeData = mutableMapOf<String, Any>("complete" to responseMap["complete"] as Long,
-                                "downloaded" to (trackerStats[trackerURL]?.get("downloaded") as? Long ?: 0),
-                                "incomplete" to responseMap["incomplete"] as Long)
-                        if(name != null) {
-                            newScrapeData["name"] = name
-                        }
-                        trackerStats[trackerURL] = newScrapeData
-                        database.statsUpdate(infohash, trackerStats)
+                    val name = trackerStats[trackerURL]?.get("name") as? String?
+                    val newScrapeData = mutableMapOf<String, Any>("complete" to (responseMap["complete"] as? Long? ?: trackerStats[trackerURL]?.get("complete") as? Long ?: 0),
+                            "downloaded" to (trackerStats[trackerURL]?.get("downloaded") as? Long ?: 0),
+                            "incomplete" to (responseMap["incomplete"] as? Long? ?: trackerStats[trackerURL]?.get("incomplete") as? Long ?: 0))
+                    if(name != null) {
+                        newScrapeData["name"] = name
                     }
+                    trackerStats[trackerURL] = newScrapeData
+                    database.statsUpdate(infohash, trackerStats)
                     //return the response map
                     return responseMap
                 }
@@ -152,14 +150,19 @@ class TorrentFile(val infohash : String, immutableList : List<List<String>>) {
             }
             else -> {
                 //insert the stats about the current files
-                val currTrackerMap = (changedTrackerStats["files"] as? Map<String, Any>?)?.get(infohash) as? Map<String, Any>?
-                //TODO maybe throw an exception if the response doesn't have the required fields?
-                val name = currTrackerMap?.get("name") as? String ?: oldName
-                val newScrapeData = mutableMapOf<String, Any>("complete" to (currTrackerMap?.get("complete") as? Long ?: 0),
-                        "downloaded" to (currTrackerMap?.get("downloaded") as? Long ?: 0),
-                        "incomplete" to (currTrackerMap?.get("incomplete") as? Long ?: 0))
-                if(name != null) {
-                    newScrapeData["name"] = name
+                val currTrackerMap = (changedTrackerStats["files"] as? Map<String, Any>?)?.entries?.iterator()?.next()?.value as? Map<String, Any>?
+                val newScrapeData : MutableMap<String, Any>
+                if(currTrackerMap == null) {
+                    newScrapeData = mutableMapOf("failure reason" to "Connection failed")
+                }
+                else {
+                    val name = currTrackerMap.get("name") as? String ?: oldName
+                    newScrapeData = mutableMapOf<String, Any>("complete" to (currTrackerMap.get("complete") as? Long ?: 0),
+                            "downloaded" to (currTrackerMap.get("downloaded") as? Long ?: 0),
+                            "incomplete" to (currTrackerMap.get("incomplete") as? Long ?: 0))
+                    if(name != null) {
+                        newScrapeData["name"] = name
+                    }
                 }
                 torrentAllStats[trackerURL] = newScrapeData
             }
@@ -173,11 +176,11 @@ class TorrentFile(val infohash : String, immutableList : List<List<String>>) {
 //        trackerURL.replace(lastAnnounce,lastAnnounce+"/announce".length, "/scrape")
         val afterAnounceString = if (lastAnnounce+"/announce".length >= trackerURL.length) "" else trackerURL.substring(lastAnnounce+"/announce".length)
         val scrapeURL = trackerURL.subSequence(0,lastAnnounce-1).toString() + "/scrape" + afterAnounceString
-        val params = listOf("info_hash" to Utils.hexEncode(infohash))
+        val params = listOf("info_hash" to Utils.urlEncode(infohash))
 
-        val (request, response, result) = scrapeURL.withParams(params).httpGet().response()
+        val (_, _, result) = scrapeURL.withParams(params).httpGet().response()
         var newTrackerStatsMap: Map<String, Any> = try {
-            Ben(response.responseMessage.toByteArray()).decode() as Map<String, Any>
+            Ben(result.get()).decode() as Map<String, Any>
         } catch (e: Exception) {
             mapOf("failure reason" to "Connection failed")
         }

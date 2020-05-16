@@ -107,7 +107,7 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
     fun announce(infohash: String, event: TorrentEvent, uploaded: Long, downloaded: Long, left: Long): Int {
         val torrentFile = TorrentFile(infohash, database.torrentsRead(infohash)) //throws IllegalArgumentException
         if(event == TorrentEvent.STARTED) torrentFile.shuffleAnnounceList()
-        val params = listOf("info_hash" to Utils.hexEncode(infohash),
+        val params = listOf("info_hash" to Utils.urlEncode(infohash),
                     "peer_id" to this.getPeerID(),
                     "port" to "6881", //Matan said to leave it like that, will be changed in future assignments
                     "uploaded" to uploaded.toString(),
@@ -115,10 +115,15 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
                     "left" to left.toString(),
                     "compact" to "1",
                     "event" to event.asString)
-        val response = torrentFile.announceTracker(params, database) //throws TrackerException
-        val peers:List<Map<String, String>> = Utils.getPeersFromResponse(response)
-        database.torrentsUpdate(infohash, torrentFile.announceList)
-        database.peersUpdate(infohash, peers)
+        val response : Map<String, Any>
+        try {
+            response = torrentFile.announceTracker(params, database) //throws TrackerException
+        }
+        finally {
+            database.torrentsUpdate(infohash, torrentFile.announceList)
+        }
+        val peers:List<Map<String, String>> = getPeersFromResponse(response)
+        addToPeers(infohash, peers)
         return (response["interval"] as Long).toInt()
     }
 
@@ -151,7 +156,7 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
      */
     fun invalidatePeer(infohash: String, peer: KnownPeer): Unit {
         val peersList = database.peersRead(infohash) //throws IllegalArgumentException
-        val newPeerslist = peersList.filter { it->  (it["IP"] != peer.ip)  }
+        val newPeerslist = peersList.filter { it->  (it["ip"] != peer.ip)  || (it["port"] != peer.port.toString()) }
         database.peersUpdate(infohash, newPeerslist)
     }
 
@@ -171,7 +176,7 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
     fun knownPeers(infohash: String): List<KnownPeer> {
         val peersList = database.peersRead(infohash) //throws IllegalArgumentException
         val sortedPeers = peersList.stream().map {
-            it -> KnownPeer(it["ip"] as String,it["port"]?.toInt() ?: 0,it["peerId"] as String?)
+            it -> KnownPeer(it["ip"] as String,it["port"]?.toInt() ?: 0,it["peer id"] as String?)
         }.sorted { o1, o2 -> Utils.compareIPs(o1.ip,o2.ip)}.toList()
         return sortedPeers
     }
@@ -224,5 +229,36 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
         builder.append(Utils.sha1hash(studentIDs.toByteArray()).substring(0, 6))
         builder.append(alphaNumericID)
         return builder.toString()
+    }
+
+    private fun addToPeers(infohash : String, newPeers : List<Map<String, String>>) {
+        val currPeers = database.peersRead(infohash).toSet().toMutableSet()
+        currPeers.addAll(newPeers) //Matan said that peers with same IP, same port, but different peer id will not be tested
+        database.peersUpdate(infohash, currPeers.toList())
+    }
+
+    /**
+     * If the response is not compact, return string as-is. Otherwise, turn the compact string
+     * into non-compact and then return
+     */
+    private fun getPeersFromResponse(response: Map<String, Any>):List<Map<String, String>> {
+        assert(response.containsKey("peers"))
+        if(response["peers"] is List<*>) {
+            return response["peers"] as List<Map<String, String>>
+        }
+        else {
+            val peersByteArray = response["peers"] as ByteArray
+            val peers = mutableListOf<Map<String, String>>()
+            var i = 0
+            while(i < peersByteArray.size) {
+                peers.add(mapOf(
+                        "ip" to (peersByteArray[i].toUByte().toInt().toString() + "." + peersByteArray[i+1].toUByte().toInt().toString() + "."
+                                + peersByteArray[i+2].toUByte().toInt().toString() + "." + peersByteArray[i+3].toUByte().toInt().toString()),
+                        "port" to (peersByteArray[i+4].toUByte().toInt() * 256 + peersByteArray[i+5].toUByte().toInt()).toString()
+                ))
+                i += 6
+            }
+            return peers
+        }
     }
 }

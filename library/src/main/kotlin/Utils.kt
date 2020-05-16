@@ -1,5 +1,6 @@
 package il.ac.technion.cs.softwaredesign
 
+import java.lang.IllegalArgumentException
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.lang.StringBuilder
@@ -20,7 +21,12 @@ class Utils {
             return bytes.fold("", { str, it -> str + "%02x".format(it) })
         }
 
-        fun hexEncode(str:String):String {
+        /**
+         * URL-encodes a hexed string
+         * @param str a string where each 2 characters are the hex representation of a byte
+         * @return the URL-encoded byteArray (that if hexed, would be str)
+         */
+        fun urlEncode(str:String):String {
             val allowedChars : List<Char> = ('a'..'z') + ('A'..'Z') + ('0'..'9') + ('.') + ('-') + ('_') + ('~')
             val strHexByteArray = UByteArray(str.length / 2)
             for(i in str.indices step 2) {
@@ -35,6 +41,7 @@ class Utils {
         }
 
         fun getRandomChars(length: Int):String {
+            if(length < 0) throw IllegalArgumentException();
             val allowedChars : List<Char> = ('a'..'z') + ('A'..'Z') + ('0'..'9')
             return (1..length)
                     .map { i -> Random.nextInt(0, allowedChars.size) }
@@ -56,31 +63,6 @@ class Utils {
                 return 0
             } catch (ex: Exception) {
                 return 0
-            }
-        }
-
-        /**
-         * If the response is not compact, return string as-is. Otherwise, turn the compact string
-         * into non-compact and then return
-         */
-        fun getPeersFromResponse(response: Map<String, Any>):List<Map<String, String>> {
-            assert(response.containsKey("peers"))
-            if(response["peers"] is List<*>) {
-                return response["peers"] as List<Map<String, String>>
-            }
-            else {
-                val peersByteArray = response["peers"] as ByteArray
-                val peers = mutableListOf<Map<String, String>>()
-                var i = 0
-                while(i < peersByteArray.size) {
-                    peers.add(mapOf(
-                            "ip" to (peersByteArray[i].toUByte().toInt().toString() + "." + peersByteArray[i+1].toUByte().toInt().toString() + "."
-                                    + peersByteArray[i+2].toUByte().toInt().toString() + "." + peersByteArray[i+3].toUByte().toInt().toString()),
-                            "port" to (peersByteArray[i+4].toUByte().toInt() * 256 + peersByteArray[i+5].toUByte().toInt()).toString()
-                    ))
-                    i += 6
-                }
-                return peers
             }
         }
 

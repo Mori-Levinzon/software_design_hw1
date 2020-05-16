@@ -13,7 +13,7 @@ import org.junit.jupiter.api.assertThrows
 import java.lang.IllegalArgumentException
 import java.lang.IllegalStateException
 
-class CourseTorrentTest {
+class CourseTorrentHW0Test {
     private val injector = Guice.createInjector(CourseTorrentModule())
     private var torrent = injector.getInstance<CourseTorrent>()
     private var inMemoryDB = HashMap<String, ByteArray>()
@@ -59,12 +59,15 @@ class CourseTorrentTest {
         }
 
         every { memoryDB.torrentsRead(capture(key)) } answers {
+            if(!statsStorage.containsKey(key.captured)) throw IllegalArgumentException()
             Ben(torrentsStorage[key.captured] as ByteArray).decode() as List<List<String>>? ?: throw IllegalArgumentException()
         }
         every { memoryDB.peersRead(capture(key)) } answers {
+            if(!statsStorage.containsKey(key.captured)) throw IllegalArgumentException()
             Ben(peersStorage[key.captured] as ByteArray).decode() as List<Map<String, String>>? ?: throw IllegalArgumentException()
         }
         every { memoryDB.statsRead(capture(key)) } answers {
+            if(!statsStorage.containsKey(key.captured)) throw IllegalArgumentException()
             Ben(statsStorage[key.captured] as ByteArray).decode() as Map<String, Map<String, Any>>? ?: throw IllegalArgumentException()
         }
 

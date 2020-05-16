@@ -10,6 +10,7 @@ package il.ac.technion.cs.softwaredesign
  */
 class Ben(val byteArray: ByteArray, var i: Int = 0) {
     private var isPieces = false
+    private var isPeers = false
     private var currChar : Char = '0'
     private val charset = Charsets.UTF_8
     fun readBytes(count: Int) : ByteArray {
@@ -38,6 +39,7 @@ class Ben(val byteArray: ByteArray, var i: Int = 0) {
     fun decode(): Any = when ({currChar = read(1)[0]; currChar}.invoke()) {
         'i' -> readUntil('e').toLong()
         'l' -> ArrayList<Any>().apply {
+            isPeers = false
             var obj = decode()
             while (obj != Unit) {
                 add(obj)
@@ -45,6 +47,7 @@ class Ben(val byteArray: ByteArray, var i: Int = 0) {
             }
         }
         'd' -> HashMap<String, Any>().apply {
+            isPeers = false
             var obj = decode()
             while (obj != Unit) {
                 if(obj as String == "info") {
@@ -61,8 +64,7 @@ class Ben(val byteArray: ByteArray, var i: Int = 0) {
                     put(obj as String, info)
                 }
                 else if (obj as String == "peers") {
-                    //TODO deal with non compact response
-                    isPieces = true
+                    isPeers = true
                     val info = decode()
                     put(obj as String, info)
                 }
@@ -73,8 +75,9 @@ class Ben(val byteArray: ByteArray, var i: Int = 0) {
             }
         }
         'e' -> Unit
-        in ('0'..'9') -> if (isPieces) {
+        in ('0'..'9') -> if (isPieces || isPeers) {
             isPieces = false
+            isPeers = false
             readBytes((currChar + readUntil(':')).toInt())
         }
         else {
@@ -90,13 +93,30 @@ class Ben(val byteArray: ByteArray, var i: Int = 0) {
             is String -> "${obj.toByteArray().size}:$obj"
             is List<*> -> "l${obj.joinToString("") {
                 encodeStr(
-                    it!!
+                        it!!
                 )
             }}e"
             is Map<*, *> -> "d${obj.map { encodeStr(it.key!!) + encodeStr(
-                it.value!!
+                    it.value!!
             )
             }.joinToString("")}e"
+            else -> throw IllegalStateException()
+        }
+        fun encodeByteArray(obj: Any): ByteArray = when (obj) {
+            is Int -> "i${obj}e".toByteArray()
+            is Long -> "i${obj}e".toByteArray()
+            is String -> "${obj.toByteArray().size}:$obj".toByteArray()
+            is UByteArray -> "${obj.toByteArray().size}:".toByteArray() + obj.toByteArray()
+            is ByteArray -> "${obj.size}:".toByteArray() + obj
+            is List<*> -> "l".toByteArray() + obj.map {
+                encodeByteArray(
+                        it!!
+                )
+            }.fold(ByteArray(0), {acc, it -> acc + it}) + "e".toByteArray()
+            is Map<*, *> -> "d".toByteArray() + obj.map { encodeByteArray(it.key!!) + encodeByteArray(
+                    it.value!!
+            )
+            }.fold(ByteArray(0), {acc, it -> acc + it}) + "e".toByteArray()
             else -> throw IllegalStateException()
         }
     }
