@@ -38,7 +38,7 @@ class CourseTorrentStaffTest {
         /* interval is 360 */
         val interval = torrent.announce(infohash, TorrentEvent.STARTED, 0, 0, 0)
 
-        assertThat(interval, equalTo(360))
+        assertThat(interval, equalTo(900))
         /* Assertion to verify that the tracker was actually called */
     }
 

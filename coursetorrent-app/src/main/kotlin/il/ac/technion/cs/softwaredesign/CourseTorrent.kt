@@ -202,9 +202,9 @@ class CourseTorrent @Inject constructor(private val database: SimpleDB) {
             if(trackerMap.containsKey("failure reason")) {
                 trackerStatsMap[trackerUrl] = Failure(trackerMap["failure reason"] as String)
             } else {
-                trackerStatsMap[trackerUrl] = Scrape(trackerMap["complete"] as Int,
-                        trackerMap["downloaded"] as Int,
-                        trackerMap["incomplete"] as Int,
+                trackerStatsMap[trackerUrl] = Scrape((trackerMap["complete"]as Long).toInt(),
+                        (trackerMap["downloaded"]as Long).toInt(),
+                        (trackerMap["incomplete"]as Long).toInt(),
                         trackerMap["name"] as? String?)
             }
         }

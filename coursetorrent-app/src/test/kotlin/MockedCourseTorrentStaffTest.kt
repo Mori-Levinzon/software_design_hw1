@@ -13,7 +13,7 @@ import org.junit.jupiter.api.assertDoesNotThrow
 import java.lang.IllegalArgumentException
 import java.lang.IllegalStateException
 
-class CourseTorrentStaffTest {
+class MockedCourseTorrentStaffTest {
     private val injector = Guice.createInjector(CourseTorrentModule())
     private var torrent = injector.getInstance<CourseTorrent>()
     private val debian = this::class.java.getResource("/debian-10.3.0-amd64-netinst.iso.torrent").readBytes()
@@ -58,12 +58,15 @@ class CourseTorrentStaffTest {
         }
 
         every { memoryDB.torrentsRead(capture(key)) } answers {
+            if(!statsStorage.containsKey(key.captured)) throw IllegalArgumentException()
             Ben(torrentsStorage[key.captured] as ByteArray).decode() as List<List<String>>? ?: throw IllegalArgumentException()
         }
         every { memoryDB.peersRead(capture(key)) } answers {
+            if(!statsStorage.containsKey(key.captured)) throw IllegalArgumentException()
             Ben(peersStorage[key.captured] as ByteArray).decode() as List<Map<String, String>>? ?: throw IllegalArgumentException()
         }
         every { memoryDB.statsRead(capture(key)) } answers {
+            if(!statsStorage.containsKey(key.captured)) throw IllegalArgumentException()
             Ben(statsStorage[key.captured] as ByteArray).decode() as Map<String, Map<String, Any>>? ?: throw IllegalArgumentException()
         }
 
@@ -104,7 +107,7 @@ class CourseTorrentStaffTest {
         /* interval is 360 */
         val interval = torrent.announce(infohash, TorrentEvent.STARTED, 0, 0, 0)
 
-        assertThat(interval, equalTo(360))
+        assertThat(interval, equalTo(900))
         /* Assertion to verify that the tracker was actually called */
     }
 
