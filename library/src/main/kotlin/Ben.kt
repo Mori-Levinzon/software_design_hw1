@@ -1,7 +1,7 @@
 package il.ac.technion.cs.softwaredesign
 
 /**
- * class for Bencoding, with special treatment for "info" and "pieces" keys (because they're bytes)
+ * class for Bencoding, with special treatment for "info", "peers" (in case it was a byte string), and "pieces" keys (because they're bytes)
  * based on: https://gist.github.com/omarmiatello/b09d4ba995c8c0881b0921c0e7aa9bdc
  * I modified the code such that the "pieces" key would have its value taken as ByteArray and not parsed,
  * while "info" will have a regular dictionary under it, in addition to the original info ByteArray under "infoEncoded"
@@ -13,18 +13,18 @@ class Ben(val byteArray: ByteArray, var i: Int = 0) {
     private var isPeers = false
     private var currChar : Char = '0'
     private val charset = Charsets.UTF_8
-    fun readBytes(count: Int) : ByteArray {
+    private fun readBytes(count: Int) : ByteArray {
         val requiredByteArray = byteArray.sliceArray(IntRange(i, i + count - 1))
         i += count
         return requiredByteArray
     }
-    fun read(count: Int) : String {
+    private fun read(count: Int) : String {
         val remainingStr = String(byteArray.sliceArray(IntRange(i, byteArray.size - 1)), charset)
         val requiredStr = remainingStr.substring(0, count)
         i += requiredStr.toByteArray(charset).size
         return requiredStr
     }
-    fun readUntil(c: Char) : String {
+    private fun readUntil(c: Char) : String {
         val remainingStr = String(byteArray.sliceArray(IntRange(i, byteArray.size - 1)), charset)
         val requiredStr = remainingStr.substring(0, remainingStr.indexOf(c) + 1)
         i += requiredStr.toByteArray(charset).size

@@ -22,7 +22,6 @@ import kotlin.or
 class CourseTorrentHW1Test {
     private val injector = Guice.createInjector(CourseTorrentModule())
     private var torrent = injector.getInstance<CourseTorrent>()
-    private var inMemoryDB = HashMap<String, ByteArray>()
     private val debian = this::class.java.getResource("/debian-10.3.0-amd64-netinst.iso.torrent").readBytes()
     private val ubuntu = this::class.java.getResource("/ubuntu-18.04.4-desktop-amd64.iso.torrent").readBytes()
     private val lame = this::class.java.getResource("/lame.torrent").readBytes()
@@ -242,7 +241,7 @@ class CourseTorrentHW1Test {
 
     @Test
     fun `after announce, client has up-to-date peer list`() {
-        mockHttp(mapOf("interval" to 360,
+        mockHttp(mapOf("interval" to 360, "complete" to 0, "incomplete" to 0, "tracker id" to "1234",
                 "peers" to ubyteArrayOf(127u, 0u, 0u, 22u, 26u, 231u, 127u, 0u, 0u, 21u, 26u, 233u).toByteArray()))
 
         val infohash = torrent.load(lame)
@@ -274,7 +273,7 @@ class CourseTorrentHW1Test {
 
     @Test
     fun `announce handles non compact responses correctly`() {
-        mockHttp(mapOf("interval" to 360,
+        mockHttp(mapOf("interval" to 360, "complete" to 0, "incomplete" to 0, "tracker id" to "1234",
                 "peers" to listOf(
                         mapOf("peer id" to "3", "ip" to "127.0.0.3", "port" to "133"),
                         mapOf("peer id" to "2", "ip" to "127.0.0.2", "port" to "122"),
@@ -299,7 +298,7 @@ class CourseTorrentHW1Test {
 
     @Test
     fun `announce updates complete and incomplete`() {
-        mockHttp(mapOf("interval" to 360,
+        mockHttp(mapOf("interval" to 360, "tracker id" to "1234",
                 "complete" to 12,
                 "incomplete" to 24,
                 "peers" to listOf(
@@ -325,7 +324,7 @@ class CourseTorrentHW1Test {
 
         val infohash = torrent.load(lame)
 
-        mockHttp(mapOf("interval" to 360,
+        mockHttp(mapOf("interval" to 360, "complete" to 0, "incomplete" to 0, "tracker id" to "1234",
                 "peers" to listOf(
                         mapOf("peer id" to "3", "ip" to "127.0.0.3", "port" to "133"),
                         mapOf("peer id" to "2", "ip" to "127.0.0.2", "port" to "122"),
@@ -333,7 +332,7 @@ class CourseTorrentHW1Test {
                 )))
         torrent.announce(infohash, TorrentEvent.STARTED, 0, 0, 2703360)
 
-        mockHttp(mapOf("interval" to 360,
+        mockHttp(mapOf("interval" to 360, "complete" to 0, "incomplete" to 0, "tracker id" to "1234",
                 "peers" to listOf(
                         mapOf("peer id" to "1", "ip" to "127.0.0.1", "port" to "111"),
                         mapOf("peer id" to "2", "ip" to "127.0.0.2", "port" to "122"),
@@ -391,7 +390,7 @@ class CourseTorrentHW1Test {
 
     @Test
     fun `peers are invalidated correctly`() {
-        mockHttp(mapOf("interval" to 360,
+        mockHttp(mapOf("interval" to 360, "complete" to 0, "incomplete" to 0, "tracker id" to "1234",
                 "peers" to ubyteArrayOf(127u, 0u, 0u, 22u, 26u, 231u, 127u, 0u, 0u, 21u, 26u, 233u).toByteArray()))
 
         val infohash = torrent.load(lame)
@@ -422,7 +421,7 @@ class CourseTorrentHW1Test {
 
     @Test
     fun `peer will not be invalidated if it's not in the peers list`() {
-        mockHttp(mapOf("interval" to 360,
+        mockHttp(mapOf("interval" to 360, "complete" to 0, "incomplete" to 0, "tracker id" to "1234",
                 "peers" to ubyteArrayOf(127u, 0u, 0u, 22u, 26u, 231u, 127u, 0u, 0u, 21u, 26u, 233u).toByteArray()))
 
         val infohash = torrent.load(lame)
@@ -451,6 +450,7 @@ class CourseTorrentHW1Test {
         mockHttpStringStartsWith(listOf("https://torrent.ubuntu.com/announce" to mapOf("interval" to 360,
                 "complete" to 100,
                 "incomplete" to 50,
+                "tracker id" to "1234",
                 "peers" to listOf(
                         mapOf("peer id" to "3", "ip" to "127.0.0.3", "port" to "133")
                 ))))
