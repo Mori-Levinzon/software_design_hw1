@@ -70,10 +70,10 @@ class SimpleDB @Inject constructor(storageFactory: SecureStorageFactory, private
         delete(torrentsStorage, key)
     }
     fun peersDelete(key: String) : Unit {
-        delete(torrentsStorage, key)
+        delete(peersStorage, key)
     }
     fun statsDelete(key: String) : Unit {
-        delete(torrentsStorage, key)
+        delete(statsStorage, key)
     }
 
 
